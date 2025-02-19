@@ -78,8 +78,8 @@ class DatabaseManager:
                 "pool_timeout": 30,
                 "pool_pre_ping": True,
                 "connect_args": {
-                    "ssl": True,
-                    "ssl_mode": "require"
+                    "statement_cache_size": 0,
+                    "prepared_statement_cache_size": 0
                 }
             }
             
