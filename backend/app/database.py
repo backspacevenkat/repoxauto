@@ -80,7 +80,11 @@ class DatabaseManager:
                 "connect_args": {
                     "statement_cache_size": 0,
                     "prepared_statement_cache_size": 0,
-                    "command_timeout": 60
+                    "command_timeout": 60,
+                    "server_settings": {
+                        "application_name": "xauto",
+                        "timezone": "UTC"
+                    }
                 }
             }
             
