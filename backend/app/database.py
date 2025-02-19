@@ -79,7 +79,8 @@ class DatabaseManager:
                 "pool_pre_ping": True,
                 "connect_args": {
                     "statement_cache_size": 0,
-                    "prepared_statement_cache_size": 0
+                    "prepared_statement_cache_size": 0,
+                    "command_timeout": 60
                 }
             }
             
