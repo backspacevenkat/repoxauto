@@ -62,7 +62,18 @@ yarn-error.log*
 Thumbs.db
 
 # Project specific
+output/
+archive_files/
+logs/
+backups/
+account_states/
+src/
 scraping_results/
 old_implementations/
 reference docs/
 *.csv
+*.json
+*.png
+*.jpeg
+*.jpg
+*.log
