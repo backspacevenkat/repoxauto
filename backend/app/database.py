@@ -33,7 +33,7 @@ DB_DIR = os.path.dirname(DB_PATH)
 os.makedirs(DB_DIR, exist_ok=True)
 
 # Database URLs
-POSTGRES_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/dbname")
+POSTGRES_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb?sslmode=require")
 SQLITE_URL = os.getenv("SQLITE_URL", f"sqlite+aiosqlite:///{DB_PATH}")
 
 # Sync URLs for migrations
