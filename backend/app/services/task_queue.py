@@ -404,24 +404,24 @@ class TaskQueue:
         count: int
     ) -> List[Account]:
         """Get multiple available worker accounts for parallel processing"""
-        # Wrap query execution inside no_autoflush to avoid premature flushes and locked database errors.
-        async with session.no_autoflush:
-            stmt = select(Account).where(
-                and_(
-                    Account.act_type == 'worker',
-                    Account.is_worker == True,
-                    Account.deleted_at.is_(None),
-                    or_(
-                        Account.validation_in_progress == ValidationState.COMPLETED,
-                        Account.validation_in_progress == ValidationState.PENDING
-                    )
+        # Query available workers
+        stmt = select(Account).where(
+            and_(
+                Account.act_type == 'worker',
+                Account.is_worker == True,
+                Account.deleted_at.is_(None),
+                or_(
+                    Account.validation_in_progress == ValidationState.COMPLETED,
+                    Account.validation_in_progress == ValidationState.PENDING
                 )
-            ).order_by(
-                Account.current_15min_requests.asc(),
-                Account.total_tasks_completed.asc()
             )
-            result = await session.execute(stmt)
-            all_accounts = result.scalars().all()
+        ).order_by(
+            Account.current_15min_requests.asc(),
+            Account.total_tasks_completed.asc()
+        )
+        
+        result = await session.execute(stmt)
+        all_accounts = result.scalars().all()
 
         # Filter accounts by rate limits
         available_accounts = []
