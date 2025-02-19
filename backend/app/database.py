@@ -124,17 +124,14 @@ class DatabaseManager:
     async def initialize(self):
         """Initialize database connection"""
         try:
-            # Try PostgreSQL first if URL is provided
-            if os.getenv("DATABASE_URL"):
-                if await self.test_connection(POSTGRES_URL):
-                    success = self.configure_engine(POSTGRES_URL)
-                    if success:
-                        self.is_connected = True
-                        return True
-                
-            # No fallback to SQLite; using PostgreSQL exclusively.
-                
-            raise Exception("Failed to connect to any database")
+            # Using PostgreSQL exclusively
+            if await self.test_connection(DATABASE_URL):
+                success = self.configure_engine(DATABASE_URL)
+                if success:
+                    self.is_connected = True
+                    return True
+            
+            raise Exception("Failed to connect to PostgreSQL database")
             
         except Exception as e:
             logger.error(f"Database initialization failed: {str(e)}")
