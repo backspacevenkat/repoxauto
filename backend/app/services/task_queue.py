@@ -442,11 +442,11 @@ class TaskQueue:
 
         return available_accounts
 
-    def _get_endpoint_for_task(self, task_type: str) -> str:
+    async def _get_endpoint_for_task(self, task_type: str, session: AsyncSession) -> str:
         """Map task type to rate limit endpoint"""
         # Ensure settings are loaded
         if self.settings is None:
-            self.settings = self._load_settings()
+            self.settings = await self._load_settings(session)
             
         endpoints = {
             # Action tasks with their own rate limits
