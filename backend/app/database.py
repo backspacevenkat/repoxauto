@@ -134,6 +134,8 @@ class DatabaseManager:
                     return True
             
             raise Exception("Failed to connect to PostgreSQL database")
+            
+        except Exception as e:
             logger.error(f"Database initialization failed: {str(e)}")
             self.is_connected = False
             return False
@@ -205,8 +207,6 @@ class DatabaseManager:
                                         elif isinstance(value, (int, float, str, bool, type(None))):
                                             value = value
                                         else:
-                                            try:
-                                                value = str(value)
                                             except:
                                                 value = None
                                         
