@@ -134,7 +134,7 @@ class TaskQueue:
 
     async def _process_task_group(self, session, task_type: str, task_list: List[Task]):
         """Process a group of tasks of the same type with reduced flushes to improve throughput"""
-        endpoint = self._get_endpoint_for_task(task_type)
+        endpoint = await self._get_endpoint_for_task(task_type, session)
         
         # Get available worker accounts for this task type
         available_accounts = await self._get_available_worker_accounts(session, endpoint, len(task_list))
