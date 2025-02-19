@@ -33,7 +33,7 @@ class TaskManager:
         self.worker_health: Dict[Account, str] = {}
         self.worker_completed: Dict[Account, float] = {}  # Changed to float for timestamp
         self.current_batch: int = 1  # Track current batch number
-        self.task_batch: Dict[Task, int] = {}  # Map tasks to their batch numbers
+        self.task_batch: Dict[Task, int] = {}  # Map tasks to their batch number
         self.worker_queue: List[Account] = []  # Queue of workers for rotation
         self._monitor_task = None
         self.queue_status = QueueStatus.STOPPED
