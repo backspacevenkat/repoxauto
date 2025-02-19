@@ -19,7 +19,9 @@ import {
     IconButton,
     Tooltip,
     Container,
-    Input
+    Input,
+    Menu,
+    MenuItem
 } from '@mui/material';
 import {
     Upload as UploadIcon,
@@ -27,14 +29,19 @@ import {
     Download as DownloadIcon,
     PlayArrow as PlayArrowIcon,
     Stop as StopIcon,
-    Info as InfoIcon
+    Info as InfoIcon,
+    MoreVert as MoreVertIcon,
+    Person as PersonIcon
 } from '@mui/icons-material';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000') + '/api';
 
 const ActionsPanel = () => {
     const [file, setFile] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [accountLoading, setAccountLoading] = useState({});
+    const [menuAnchor, setMenuAnchor] = useState(null);
+    const [selectedAccount, setSelectedAccount] = useState(null);
     const [error, setError] = useState(null);
     const [actions, setActions] = useState([]);
     const [uploadResult, setUploadResult] = useState(null);
@@ -63,7 +70,7 @@ const ActionsPanel = () => {
 
     const fetchActions = async () => {
         try {
-            const response = await fetch(`${BACKEND_URL}/actions/list`);
+            const response = await fetch(`${API_BASE_URL}/actions/list`);
             if (!response.ok) {
                 throw new Error(`Failed to fetch actions: ${response.statusText}`);
             }
@@ -86,6 +93,66 @@ const ActionsPanel = () => {
         }
     };
 
+    const handleMenuOpen = (event, account) => {
+        setMenuAnchor(event.currentTarget);
+        setSelectedAccount(account);
+    };
+
+    const handleMenuClose = () => {
+        setMenuAnchor(null);
+        setSelectedAccount(null);
+    };
+
+    const validateAccount = async (accountNo) => {
+        try {
+            setAccountLoading(prev => ({ ...prev, [accountNo]: 'validating' }));
+            const response = await fetch(`${API_BASE_URL}/accounts/${accountNo}/validate`, {
+                method: 'POST'
+            });
+            
+            if (!response.ok) {
+                throw new Error('Validation failed');
+            }
+            
+            const data = await response.json();
+            setError(null);
+            
+            fetchActions();
+            
+        } catch (error) {
+            console.error('Validation error:', error);
+            setError(`Validation failed: ${error.message}`);
+        } finally {
+            setAccountLoading(prev => ({ ...prev, [accountNo]: false }));
+            handleMenuClose();
+        }
+    };
+
+    const refreshCookies = async (accountNo) => {
+        try {
+            setAccountLoading(prev => ({ ...prev, [accountNo]: 'refreshing' }));
+            const response = await fetch(`${API_BASE_URL}/accounts/${accountNo}/refresh-cookies`, {
+                method: 'POST'
+            });
+            
+            if (!response.ok) {
+                throw new Error('Cookie refresh failed');
+            }
+            
+            const data = await response.json();
+            setError(null);
+            
+            fetchActions();
+            
+        } catch (error) {
+            console.error('Cookie refresh error:', error);
+            setError(`Cookie refresh failed: ${error.message}`);
+        } finally {
+            setAccountLoading(prev => ({ ...prev, [accountNo]: false }));
+            handleMenuClose();
+        }
+    };
+
     const handleUpload = async () => {
         if (!file) {
             setError('Please select a file first');
@@ -100,34 +167,67 @@ const ActionsPanel = () => {
         formData.append('file', file);
 
         try {
-            const response = await fetch(`${BACKEND_URL}/actions/import`, {
+            // Log the file being uploaded for debugging
+            console.log('Uploading file:', file.name, 'Size:', file.size);
+
+            const response = await fetch(`${API_BASE_URL}/actions/import`, {
                 method: 'POST',
                 body: formData,
             });
 
-            const result = await response.json();
+            // Log the raw response for debugging
+            console.log('Response status:', response.status);
+            const responseText = await response.text();
+            console.log('Response text:', responseText);
 
-            if (!response.ok) {
-                throw new Error(result.detail || 'Upload failed');
+            let result;
+            try {
+                result = JSON.parse(responseText);
+            } catch (parseError) {
+                console.error('Error parsing response:', parseError);
+                throw new Error('Invalid response format from server');
             }
 
-            setUploadResult(result);
+            if (!response.ok) {
+                throw new Error(result.detail || result.message || 'Upload failed');
+            }
+
+            // Log successful result
+            console.log('Upload result:', result);
+
+            if (result.tasks_created === 0 && (!result.errors || result.errors.length === 0)) {
+                setError('No actions were created. Please check your CSV file format.');
+                return;
+            }
+
+            setUploadResult({
+                successful: result.tasks_created || 0,
+                failed: (result.errors || []).length,
+                errors: result.errors || []
+            });
+            
             fetchActions();
-            setFile(null);
-            // Reset file input
-            const fileInput = document.querySelector('input[type="file"]');
-            if (fileInput) fileInput.value = '';
         } catch (err) {
             console.error('Upload error:', err);
             setError(`Upload failed: ${err.message}`);
         } finally {
+            setFile(null);
             setLoading(false);
+            const fileInput = document.querySelector('input[type="file"]');
+            if (fileInput) {
+                const newInput = document.createElement('input');
+                newInput.type = 'file';
+                newInput.accept = '.csv';
+                newInput.className = fileInput.className;
+                newInput.addEventListener('change', handleFileChange);
+                fileInput.parentNode.replaceChild(newInput, fileInput);
+            }
         }
     };
 
     const handleRetry = async (actionId) => {
         try {
-            const response = await fetch(`${BACKEND_URL}/actions/${actionId}/retry`, {
+            const response = await fetch(`${API_BASE_URL}/actions/${actionId}/retry`, {
                 method: 'POST'
             });
 
@@ -144,7 +244,7 @@ const ActionsPanel = () => {
 
     const handleCancel = async (actionId) => {
         try {
-            const response = await fetch(`${BACKEND_URL}/actions/${actionId}/cancel`, {
+            const response = await fetch(`${API_BASE_URL}/actions/${actionId}/cancel`, {
                 method: 'POST'
             });
 
@@ -188,28 +288,40 @@ const ActionsPanel = () => {
                 <Stack spacing={2}>
                     <Typography variant="h6">Upload Actions CSV</Typography>
                     <Alert severity="info" sx={{ whiteSpace: 'pre-wrap' }}>
-                        CSV Format Example:
-                        account_no,task_type,source_tweet,text_content,media,api_method
-                        act203,like,https://x.com/user/status/123456789,,,graphql
-                        act204,RT,https://x.com/user/status/123456789,,,rest
+                        Full CSV Format (with all columns):
+                        account_no,task_type,source_tweet,text_content,media,api_method,user,priority
+                        act203,like,https://x.com/user/status/123456789,,,graphql,,0
+                        act204,RT,https://x.com/user/status/123456789,,,rest,,0
+                        act205,follow,,,,graphql,elonmusk,0
+
+                        Minimal CSV Format (for follow actions):
+                        account_no,task_type,user
+                        WACC162,follow,PayomDousti
+                        WACC163,follow,mogmachine
                         
                         Notes:
-                        • task_type can be: like, RT, reply, quote, post
+                        • task_type can be: like, RT, reply, quote, post, follow
                         • text_content is required for reply, quote, and post
                         • media is optional
-                        • api_method can be: graphql or rest (default: graphql)
-                        • Priority is optional (default: 0)
+                        • api_method column is optional (defaults to graphql if missing)
+                        • user is required for follow actions (only used with task_type=follow)
+                        • priority is optional (default: 0)
+                        • For follow actions: only account_no, task_type, and user are required
+                        • For follow actions: source_tweet, text_content, and media should be empty
                         
                         You can find a sample file at: account_actions.csv
                     </Alert>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Input
-                            type="file"
-                            onChange={handleFileChange}
-                            disabled={loading}
-                            sx={{ flex: 1 }}
-                            inputProps={{ accept: '.csv' }}
-                        />
+                        <Box sx={{ flex: 1 }}>
+                            <Input
+                                type="file"
+                                onChange={handleFileChange}
+                                disabled={loading}
+                                sx={{ width: '100%' }}
+                                inputProps={{ accept: '.csv' }}
+                                key={loading ? 'loading' : 'not-loading'}
+                            />
+                        </Box>
                         <Button
                             variant="contained"
                             onClick={handleUpload}
@@ -231,11 +343,11 @@ const ActionsPanel = () => {
                     )}
                     {uploadResult && (
                         <Alert 
-                            severity={uploadResult.errors?.length > 0 ? "warning" : "success"}
+                            severity={uploadResult.failed > 0 ? "warning" : "success"}
                             onClose={() => setUploadResult(null)}
                         >
-                            <Typography>Successfully created {uploadResult.tasks_created} actions</Typography>
-                            {uploadResult.errors?.length > 0 && (
+                            <Typography>Successfully created {uploadResult.successful} actions</Typography>
+                            {uploadResult.failed > 0 && uploadResult.errors && (
                                 <Box sx={{ mt: 1 }}>
                                     <Typography variant="subtitle2">Errors:</Typography>
                                     {uploadResult.errors.map((error, index) => (
@@ -269,6 +381,7 @@ const ActionsPanel = () => {
                                 <TableCell>Type</TableCell>
                                 <TableCell>API Method</TableCell>
                                 <TableCell>Tweet URL</TableCell>
+                                <TableCell>Target Account</TableCell>
                                 <TableCell>Status</TableCell>
                                 <TableCell>Created</TableCell>
                                 <TableCell>Executed</TableCell>
@@ -279,7 +392,22 @@ const ActionsPanel = () => {
                             {actions.map((action) => (
                                 <TableRow key={action.id}>
                                     <TableCell>{action.id}</TableCell>
-                                    <TableCell>{action.account_id}</TableCell>
+                                    <TableCell>
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                            <Typography>{action.account_id}</Typography>
+                                            <IconButton
+                                                size="small"
+                                                onClick={(e) => handleMenuOpen(e, action.account_id)}
+                                                disabled={accountLoading[action.account_id]}
+                                            >
+                                                {accountLoading[action.account_id] ? (
+                                                    <CircularProgress size={20} />
+                                                ) : (
+                                                    <MoreVertIcon fontSize="small" />
+                                                )}
+                                            </IconButton>
+                                        </Stack>
+                                    </TableCell>
                                     <TableCell>{action.action_type}</TableCell>
                                     <TableCell>
                                         <Chip
@@ -290,57 +418,95 @@ const ActionsPanel = () => {
                                         />
                                     </TableCell>
                                     <TableCell>
-                                        <Stack spacing={1}>
-                                            <Tooltip title={action.tweet_url}>
-                                                <Typography 
-                                                    component="a" 
-                                                    href={action.tweet_url} 
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    sx={{ 
-                                                        maxWidth: 200,
-                                                        textDecoration: 'none',
-                                                        color: 'primary.main',
-                                                        '&:hover': {
-                                                            textDecoration: 'underline'
-                                                        }
-                                                    }}
-                                                    noWrap
-                                                >
-                                                    {action.action_type === 'like' ? 'View Tweet' : 'Source Tweet'}
-                                                </Typography>
-                                            </Tooltip>
-                                            {action.status === 'completed' && (
-                                                <Tooltip title="View Result">
+                                        {action.action_type !== 'follow_user' && (
+                                            <Stack spacing={1}>
+                                                {/* Source Tweet Link */}
+                                                {(action.source_tweet || action.tweet_url) && (
+                                                    <Tooltip title={action.source_tweet || action.tweet_url}>
+                                                        <Typography 
+                                                            component="a" 
+                                                            href={action.source_tweet || action.tweet_url} 
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            sx={{ 
+                                                                maxWidth: 200,
+                                                                textDecoration: 'none',
+                                                                color: 'primary.main',
+                                                                '&:hover': { textDecoration: 'underline' }
+                                                            }}
+                                                            noWrap
+                                                        >
+                                                            Source Tweet
+                                                        </Typography>
+                                                    </Tooltip>
+                                                )}
+                                                
+                                                {/* Result Tweet Link */}
+                                                {action.status === 'completed' && (
+                                                    action.result_tweet_url || 
+                                                    action.result_tweet || 
+                                                    (action.result && action.result.tweet_url) ||
+                                                    (action.result && action.result.result && action.result.result.tweet_url)
+                                                ) && (
+                                                    <Tooltip title="View Result">
+                                                        <Typography 
+                                                            component="a" 
+                                                            href={
+                                                                action.result_tweet_url || 
+                                                                action.result_tweet || 
+                                                                (action.result && action.result.tweet_url) ||
+                                                                (action.result && action.result.result && action.result.result.tweet_url)
+                                                            }
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            sx={{ 
+                                                                maxWidth: 200,
+                                                                textDecoration: 'none',
+                                                                color: 'success.main',
+                                                                '&:hover': { textDecoration: 'underline' }
+                                                            }}
+                                                            noWrap
+                                                        >
+                                                            {action.action_type === 'retweet' ? 'View Retweet' : 
+                                                             action.action_type === 'reply' ? 'View Reply' : 
+                                                             action.action_type === 'quote' ? 'View Quote' : 
+                                                             action.action_type === 'like' ? 'View Like' :
+                                                             'View Result'}
+                                                        </Typography>
+                                                    </Tooltip>
+                                                )}
+                                            </Stack>
+                                        )}
+                                    </TableCell>
+                                    <TableCell>
+                                        {action.action_type === 'follow_user' && action.meta_data?.user && (
+                                            <Stack direction="row" spacing={1} alignItems="center">
+                                                <PersonIcon fontSize="small" color="action" />
+                                                <Tooltip title={`@${action.meta_data.user}`}>
                                                     <Typography 
                                                         component="a" 
-                                                        href={`https://twitter.com/${action.account_id}`}
+                                                        href={`https://twitter.com/${action.meta_data.user}`}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
                                                         sx={{ 
                                                             maxWidth: 200,
                                                             textDecoration: 'none',
-                                                            color: 'secondary.main',
-                                                            '&:hover': {
-                                                                textDecoration: 'underline'
-                                                            }
+                                                            color: 'primary.main',
+                                                            '&:hover': { textDecoration: 'underline' }
                                                         }}
                                                         noWrap
                                                     >
-                                                        {action.action_type === 'RT' ? 'View Retweet' : 
-                                                         action.action_type === 'reply' ? 'View Reply' : 
-                                                         action.action_type === 'quote' ? 'View Quote' : 
-                                                         'View Result'}
+                                                        @{action.meta_data.user}
                                                     </Typography>
                                                 </Tooltip>
-                                            )}
-                                        </Stack>
+                                            </Stack>
+                                        )}
                                     </TableCell>
                                     <TableCell>
                                         <Tooltip title={action.error_message || ''}>
                                             <Chip
                                                 label={action.status}
-                                                color={getStatusColor(action.status)}
+                                                color={action.result_tweet_url && ['reply_tweet', 'quote_tweet'].includes(action.action_type) ? 'success' : getStatusColor(action.status)}
                                                 size="small"
                                             />
                                         </Tooltip>
@@ -388,6 +554,36 @@ const ActionsPanel = () => {
                     </Table>
                 </TableContainer>
             </Paper>
+
+            {/* Account Actions Menu */}
+            <Menu
+                anchorEl={menuAnchor}
+                open={Boolean(menuAnchor)}
+                onClose={handleMenuClose}
+            >
+                <MenuItem 
+                    onClick={() => validateAccount(selectedAccount)}
+                    disabled={accountLoading[selectedAccount] === 'validating'}
+                >
+                    <Stack direction="row" spacing={1} alignItems="center">
+                        <PlayArrowIcon fontSize="small" />
+                        <Typography>
+                            {accountLoading[selectedAccount] === 'validating' ? 'Validating...' : 'Validate Account'}
+                        </Typography>
+                    </Stack>
+                </MenuItem>
+                <MenuItem 
+                    onClick={() => refreshCookies(selectedAccount)}
+                    disabled={accountLoading[selectedAccount] === 'refreshing'}
+                >
+                    <Stack direction="row" spacing={1} alignItems="center">
+                        <RefreshIcon fontSize="small" />
+                        <Typography>
+                            {accountLoading[selectedAccount] === 'refreshing' ? 'Refreshing...' : 'Refresh Cookies'}
+                        </Typography>
+                    </Stack>
+                </MenuItem>
+            </Menu>
 
             {/* Action Details Modal */}
             <TaskDetailsModal

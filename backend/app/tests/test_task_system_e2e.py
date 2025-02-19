@@ -6,9 +6,9 @@ from datetime import datetime
 from sqlalchemy import select
 from ..models.task import Task
 from ..models.account import Account
-from ..services.task_queue import TaskQueue
+from ..services.task_manager import TaskManager
 from ..schemas.task import TaskType, TaskStatus
-from ..database import get_session
+from ..database import db_manager
 
 TEST_ACCOUNTS = [
     {
@@ -56,20 +56,21 @@ async def setup_test_accounts(test_db_session):
     return accounts
 
 @pytest.fixture
-async def task_queue(test_db_session):
-    """Create and start task queue"""
-    queue = TaskQueue(lambda: test_db_session)
-    await queue.start()
-    yield queue
-    await queue.stop()
+async def task_manager(test_db_session):
+    """Create and initialize task manager"""
+    manager = await TaskManager.get_instance(test_db_session)
+    await manager.initialize()
+    await manager.start()
+    yield manager
+    await manager.stop()
 
 @pytest.mark.asyncio
-async def test_profile_scraping(test_db_session, setup_test_accounts, task_queue):
+async def test_profile_scraping(test_db_session, setup_test_accounts, task_manager):
     """Test profile scraping with multiple accounts and tasks"""
     # Create profile scraping tasks
     tasks = []
     for username in TEST_USERNAMES:
-        task = await task_queue.add_task(
+        task = await task_manager.add_task(
             test_db_session,
             TaskType.SCRAPE_PROFILE,
             {"username": username},
@@ -103,12 +104,12 @@ async def test_profile_scraping(test_db_session, setup_test_accounts, task_queue
             assert all(key in profile_data for key in ["bio", "profile_url", "profile_image_url"])
 
 @pytest.mark.asyncio
-async def test_tweet_scraping(test_db_session, setup_test_accounts, task_queue):
+async def test_tweet_scraping(test_db_session, setup_test_accounts, task_manager):
     """Test tweet scraping with multiple accounts and tasks"""
     # Create tweet scraping tasks with different counts
     tasks = []
     for i, username in enumerate(TEST_USERNAMES):
-        task = await task_queue.add_task(
+        task = await task_manager.add_task(
             test_db_session,
             TaskType.SCRAPE_TWEETS,
             {
@@ -152,12 +153,12 @@ async def test_tweet_scraping(test_db_session, setup_test_accounts, task_queue):
                 ])
 
 @pytest.mark.asyncio
-async def test_rate_limiting(test_db_session, setup_test_accounts, task_queue):
+async def test_rate_limiting(test_db_session, setup_test_accounts, task_manager):
     """Test rate limiting functionality"""
     # Create many tasks to trigger rate limits
     tasks = []
     for i in range(50):  # Create 50 tasks
-        task = await task_queue.add_task(
+        task = await task_manager.add_task(
             test_db_session,
             TaskType.SCRAPE_PROFILE,
             {"username": f"test_user_{i}"},
@@ -176,13 +177,13 @@ async def test_rate_limiting(test_db_session, setup_test_accounts, task_queue):
     assert pending_count > 0, "Rate limiting should prevent all tasks from running at once"
 
 @pytest.mark.asyncio
-async def test_task_priority(test_db_session, setup_test_accounts, task_queue):
+async def test_task_priority(test_db_session, setup_test_accounts, task_manager):
     """Test task priority ordering"""
     # Create tasks with different priorities
     priorities = [0, 5, 10]  # Low, medium, high
     tasks = []
     for priority in priorities:
-        task = await task_queue.add_task(
+        task = await task_manager.add_task(
             test_db_session,
             TaskType.SCRAPE_PROFILE,
             {"username": f"priority_test_{priority}"},
@@ -209,7 +210,7 @@ async def test_task_priority(test_db_session, setup_test_accounts, task_queue):
         "Tasks should be executed in priority order"
 
 @pytest.mark.asyncio
-async def test_csv_import(test_db_session, setup_test_accounts, task_queue):
+async def test_csv_import(test_db_session, setup_test_accounts, task_manager):
     """Test CSV import functionality"""
     # Create test CSV content
     csv_content = "Username\n" + "\n".join(TEST_USERNAMES)
@@ -221,7 +222,7 @@ async def test_csv_import(test_db_session, setup_test_accounts, task_queue):
     for row in csv_reader:
         username = row['Username'].strip()
         if username:
-            task = await task_queue.add_task(
+            task = await task_manager.add_task(
                 test_db_session,
                 TaskType.SCRAPE_TWEETS,
                 {
@@ -245,10 +246,10 @@ async def test_csv_import(test_db_session, setup_test_accounts, task_queue):
             "Tasks should start processing"
 
 @pytest.mark.asyncio
-async def test_error_handling(test_db_session, setup_test_accounts, task_queue):
+async def test_error_handling(test_db_session, setup_test_accounts, task_manager):
     """Test error handling in tasks"""
     # Create task with invalid username
-    task = await task_queue.add_task(
+    task = await task_manager.add_task(
         test_db_session,
         TaskType.SCRAPE_PROFILE,
         {"username": ""},  # Invalid username
@@ -270,7 +271,7 @@ async def test_error_handling(test_db_session, setup_test_accounts, task_queue):
 @pytest.fixture
 async def test_db_session():
     """Create a test database session"""
-    async_session = get_session()
+    async_session = db_manager.async_session()
     async with async_session() as session:
         yield session
         # Cleanup

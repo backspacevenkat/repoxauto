@@ -1,0 +1,761 @@
+from csv import DictReader
+import io
+import re
+import logging
+import redis.asyncio as redis
+from typing import List
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, delete, insert, text, and_, or_, case
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from datetime import datetime, timedelta
+
+# Constants
+BATCH_SIZE = 1000  # Number of records to insert at once
+USERNAME_REGEX = r'^[a-zA-Z0-9][a-zA-Z0-9_]{3,14}$'  # Twitter username format
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+from ..dependencies import get_db, get_current_user
+from ..models.follow_settings import FollowSettings
+from ..models.follow_list import FollowList, ListType, FollowProgress
+from ..models.account import Account
+from ..schemas.follow import (
+    FollowSettingsCreate,
+    FollowSettings as FollowSettingsSchema,
+    FollowList as FollowListSchema,
+    FollowProgress as FollowProgressSchema,
+    FollowStats
+)
+from ..services.follow_scheduler import FollowScheduler
+
+# Initialize router
+router = APIRouter(prefix="/follow", tags=["follow"])
+
+from pydantic import BaseModel
+
+class UploadResponse(BaseModel):
+    message: str
+    added_count: int
+    deleted_count: int
+    warnings: str | None = None
+
+def validate_settings(settings: FollowSettingsCreate):
+    """Validate settings values"""
+    if settings.max_follows_per_interval < 1:
+        raise ValueError("Max follows per interval must be at least 1")
+    if settings.interval_minutes < 1:
+        raise ValueError("Interval minutes must be at least 1")
+    if settings.max_follows_per_day < 1:
+        raise ValueError("Max follows per day must be at least 1")
+    if settings.internal_ratio < 0 or settings.external_ratio < 0:
+        raise ValueError("Ratios cannot be negative")
+    if settings.min_following < 0 or settings.max_following < 0:
+        raise ValueError("Following counts cannot be negative")
+    if settings.schedule_groups < 1 or settings.schedule_groups > 24:
+        raise ValueError("Schedule groups must be between 1 and 24")
+    if settings.schedule_hours < 1 or settings.schedule_hours > 24:
+        raise ValueError("Schedule hours must be between 1 and 24")
+    if settings.min_following > settings.max_following:
+        raise ValueError("Min following cannot be greater than max following")
+
+@router.post("/settings", response_model=FollowSettingsSchema)
+@router.get("/settings", response_model=FollowSettingsSchema)
+async def update_settings(
+    settings: FollowSettingsCreate = None,
+    session: AsyncSession = Depends(get_db)
+):
+    """Update follow settings"""
+    try:
+        db_settings = await session.execute(select(FollowSettings))
+        db_settings = db_settings.scalar_one_or_none()
+        
+        if settings is None:  # GET request
+            if not db_settings:
+                db_settings = FollowSettings()
+                session.add(db_settings)
+                await session.flush()
+            return FollowSettingsSchema.model_validate(db_settings)
+        
+        # POST request
+        # Validate settings before updating
+        validate_settings(settings)
+        
+        if not db_settings:
+            db_settings = FollowSettings()
+            session.add(db_settings)
+        
+        # Update settings
+        for key, value in settings.dict().items():
+            setattr(db_settings, key, value)
+        db_settings.last_updated = datetime.utcnow()
+        await session.flush()
+        
+        # Reconfigure scheduler if settings changed
+        try:
+            from ..main import follow_scheduler
+            if follow_scheduler.is_running():
+                await follow_scheduler.reconfigure()
+                logger.info("Reconfigured follow scheduler with new settings")
+        except Exception as e:
+            logger.error(f"Error reconfiguring scheduler: {str(e)}")
+            # Don't fail the request, just log the error
+        
+        return FollowSettingsSchema.model_validate(db_settings)
+    except ValueError as e:
+        logger.error(f"Invalid settings: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error updating settings: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update settings: {str(e)}"
+        )
+
+@router.post("/upload/{list_type}", response_model=UploadResponse)
+async def upload_follow_list(
+    request: Request,
+    list_type: str,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+) -> UploadResponse:
+    """Upload internal or external follow list with rate limiting"""
+    logger.info(f"Starting upload for {list_type} list: {file.filename}")
+    
+    # Validate list type first
+    if list_type not in ['internal', 'external']:
+        logger.error(f"Invalid list type: {list_type}")
+        raise HTTPException(400, "List type must be 'internal' or 'external'")
+
+    # Rate limiting - max 5 uploads per minute per IP
+    rate_limit_key = f"upload_limit:{request.client.host}"
+    
+    # Get Redis pool from app state
+    redis_pool = getattr(request.app.state, 'redis_pool', None)
+    if redis_pool:
+        try:
+            # Create new async client from connection pool
+            conn = redis.Redis(connection_pool=redis_pool)
+            async with conn:
+                current_uploads = await conn.get(rate_limit_key)
+                if current_uploads and int(current_uploads) >= 5:
+                    logger.warning(f"Rate limit exceeded for IP: {request.client.host}")
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Too many uploads. Please wait 1 minute before trying again"
+                    )
+                # Update rate limit using pipeline
+                async with conn.pipeline() as pipe:
+                    await pipe.incr(rate_limit_key)\
+                              .expire(rate_limit_key, 60)\
+                              .execute()
+        except redis.RedisError as e:
+            logger.error(f"Redis rate limit check failed: {str(e)}")
+            # Continue without rate limiting
+    else:
+        logger.warning("Redis pool not available, skipping rate limiting")
+    
+    # Validate file type and size
+    if not file.filename.endswith('.csv'):
+        logger.error("Invalid file type")
+        raise HTTPException(400, "File must be a CSV")
+    
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+    try:
+        file.file.seek(0, 2)  # Seek to end
+        file_size = file.file.tell()
+        file.file.seek(0)  # Reset to beginning
+        
+        if file_size > MAX_FILE_SIZE:
+            logger.error(f"File too large: {file_size} bytes")
+            raise HTTPException(400, f"File too large. Maximum size is {MAX_FILE_SIZE} bytes")
+            
+        if file_size == 0:
+            logger.error("Uploaded file is empty")
+            raise HTTPException(400, "Uploaded file is empty")
+    except Exception as e:
+        logger.error(f"Error checking file size: {str(e)}")
+        raise HTTPException(400, "Invalid file upload")
+    
+    try:
+        logger.info(f"Starting file upload process for {list_type} list")
+        
+        # Read and validate file content
+        try:
+            content = await file.read()
+            await file.close()
+            logger.info("Uploaded file closed successfully")
+            
+            if not content:
+                logger.error("Empty file uploaded")
+                raise HTTPException(400, "Uploaded file is empty")
+                
+            # Validate file content is valid UTF-8
+            try:
+                decoded_content = content.decode('utf-8-sig')
+                logger.info("Successfully decoded file content")
+            except UnicodeDecodeError as e:
+                logger.error(f"Invalid file encoding: {str(e)}")
+                raise HTTPException(400, "Invalid file encoding. Please use UTF-8 format")
+                
+        except Exception as e:
+            logger.error(f"Error reading file: {str(e)}")
+            raise HTTPException(400, f"Failed to read uploaded file: {str(e)}")
+        
+        # Process CSV content
+        if len(decoded_content.strip()) == 0:
+            logger.error("CSV content is empty")
+            raise HTTPException(400, "CSV file contains no data")
+        
+        csv_file = io.StringIO(decoded_content)
+        csv_reader = DictReader(csv_file)
+        
+        # Validate CSV structure
+        if not csv_reader.fieldnames:
+            logger.error("CSV file has no headers")
+            raise HTTPException(400, "CSV file is empty or has no headers")
+            
+        # Map and validate CSV headers
+        header_mappings = {
+            'login': 'username',  # Map 'login' to 'username'
+            'username': 'username'  # Allow direct username column too
+        }
+        
+        csv_headers = set(csv_reader.fieldnames or [])
+        mapped_headers = {header_mappings.get(h.lower(), h.lower()) for h in csv_headers}
+        
+        if 'username' not in mapped_headers:
+            logger.error(f"CSV missing username column. Found headers: {csv_reader.fieldnames}")
+            raise HTTPException(
+                status_code=400,
+                detail="CSV file must contain either 'username' or 'login' column"
+            )
+            
+        # Store header mapping for later use
+        username_field = next(h for h in csv_reader.fieldnames if h.lower() in ['username', 'login'])
+        
+        # Process the CSV data
+        invalid_rows = []
+        valid_usernames = []
+        logger.info("Starting CSV validation")
+        
+        # Log CSV headers
+        logger.info(f"CSV headers: {csv_reader.fieldnames}")
+        
+        try:
+            # Single pass to collect and validate usernames
+            for row_num, row in enumerate(csv_reader, start=2):
+                try:
+                    # Get username using the mapped field
+                    username = row.get(username_field, '').strip()
+                    if not username:
+                        invalid_rows.append(f"Row {row_num}: Empty username")
+                        continue
+                    
+                    # Store original case for display but use lowercase for validation
+                    username_original = username
+                    username_lower = username.lower()
+                    
+                    if len(username_lower) > 15:
+                        invalid_rows.append(f"Row {row_num}: Username too long (max 15 chars)")
+                        continue
+                        
+                    if list_type == 'internal':
+                        # Stricter validation for internal accounts
+                        if not re.match(USERNAME_REGEX, username):
+                            invalid_rows.append(f"Row {row_num}: Invalid username format")
+                            continue
+                        
+                        # Check for invalid characters
+                        if any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789_' for c in username_lower):
+                            invalid_rows.append(f"Row {row_num}: Username contains invalid characters")
+                            continue
+                            
+                        if '..' in username_lower or '__' in username_lower:
+                            invalid_rows.append(f"Row {row_num}: Consecutive special characters not allowed")
+                            continue
+                    else:
+                        # Basic validation for external accounts
+                        if any(c in ' \t\n\r' for c in username_lower):
+                            invalid_rows.append(f"Row {row_num}: Username cannot contain whitespace")
+                            continue
+                    
+                    valid_usernames.append(username)
+                    logger.info(f"Added valid username: {username}")
+                except Exception as e:
+                    logger.error(f"Error validating username: {str(e)}")
+                    logger.error(f"Error processing row {row_num}: {str(e)}")
+                    invalid_rows.append(f"Row {row_num}: {str(e)}")
+            
+            if invalid_rows:
+                error_message = "\n".join(invalid_rows)
+                logger.error(f"CSV validation failed: {error_message}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=error_message
+                ) from None
+            
+            if not valid_usernames:
+                logger.error("No valid usernames found in CSV")
+                raise HTTPException(
+                    status_code=400,
+                    detail="No valid usernames found in CSV"
+                )
+            
+            logger.info(f"Found {len(valid_usernames)} valid usernames")
+            
+            # Process usernames based on list type
+            try:
+                if list_type == 'internal':
+                    try:
+                        # For internal lists, validate against Account table
+                        logger.info(f"Checking {len(valid_usernames)} usernames against Account table")
+                        
+                        async with session.begin_nested():
+                            # Get all valid worker accounts in one query
+                            stmt = select(Account).where(
+                                and_(
+                                    func.lower(Account.login).in_([u.lower() for u in valid_usernames]),
+                                    Account.act_type == 'worker',
+                                    Account.deleted_at.is_(None),
+                                    Account.auth_token.isnot(None),
+                                    Account.ct0.isnot(None),
+                                    Account.is_active == True,  # Add active check
+                                    Account.credentials_valid == True  # Add credentials check
+                                )
+                            )
+                            result = await session.execute(stmt)
+                            valid_accounts = {acc.login.lower(): acc for acc in result.scalars().all()}
+                            
+                            # Find invalid usernames with case preservation
+                            invalid_usernames = []
+                            for username in valid_usernames:
+                                if username.lower() not in valid_accounts:
+                                    invalid_usernames.append(username)  # Keep original case for error message
+                            
+                            if invalid_usernames:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"Invalid or inactive worker accounts: {', '.join(invalid_usernames)}"
+                                )
+                            
+                            if not valid_accounts:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail="No valid worker accounts found in the uploaded list"
+                                )
+                            
+                            # Delete existing entries in a transaction
+                            result = await session.execute(
+                                delete(FollowList).where(
+                                    and_(
+                                        FollowList.list_type == ListType.INTERNAL,
+                                        FollowList.uploaded_by == current_user["id"]
+                                    )
+                                )
+                            )
+                            deleted_count = result.rowcount
+                            logger.info(f"Deleted {deleted_count} existing internal entries")
+                            
+                            # Prepare all entries for bulk insert
+                            now = datetime.utcnow()
+                            entries_to_add = [
+                                FollowList(
+                                    username=account.login,  # Use original case from account
+                                    list_type=ListType.INTERNAL,
+                                    uploaded_by=current_user["id"],
+                                    account_login=account.login,
+                                    created_at=now,
+                                    validated_at=now,
+                                    status="pending"
+                                )
+                                for account in valid_accounts.values()
+                            ]
+                            
+                            # Bulk insert new entries
+                            session.add_all(entries_to_add)
+                            await session.flush()
+                        
+                        logger.info(f"Successfully processed {len(valid_accounts)} internal usernames")
+                        return UploadResponse(
+                            message=f"Successfully processed {len(valid_accounts)} internal usernames",
+                            added_count=len(valid_accounts),
+                            deleted_count=deleted_count
+                        )
+                    except Exception as e:
+                        await session.rollback()
+                        logger.error(f"Error processing internal list: {str(e)}")
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Failed to process internal list: {str(e)}"
+                        )
+                else:  # External list processing
+                    try:
+                        logger.info(f"Processing {len(valid_usernames)} external usernames")
+                        async with session.begin_nested():
+                            # Delete existing entries
+                            result = await session.execute(
+                                delete(FollowList).where(
+                                    and_(
+                                        FollowList.list_type == ListType.EXTERNAL,
+                                        FollowList.uploaded_by == current_user["id"]
+                                    )
+                                )
+                            )
+                            deleted_count = result.rowcount
+                            logger.info(f"Deleted {deleted_count} existing external entries")
+                            
+                            # Prepare entries for bulk insert
+                            entries_to_add = []
+                            total_entries = len(valid_usernames)
+                            now = datetime.utcnow()
+                            
+                            # Process in batches
+                            for i in range(0, total_entries, BATCH_SIZE):
+                                batch = valid_usernames[i:i + BATCH_SIZE]
+                                batch_entries = [
+                                    FollowList(
+                                        list_type=ListType.EXTERNAL,
+                                        username=username.lower(),  # Store lowercase for consistency
+                                        uploaded_by=current_user["id"],
+                                        created_at=now,
+                                        validated_at=now,
+                                        status="pending"
+                                    )
+                                    for username in batch
+                                ]
+                                entries_to_add.extend(batch_entries)
+                                logger.info(f"Prepared batch of {len(batch)} usernames ({i + len(batch)}/{total_entries})")
+                            
+                            # Bulk insert all entries
+                            if entries_to_add:
+                                session.add_all(entries_to_add)
+                                await session.flush()
+                                processed_count = len(entries_to_add)
+                                logger.info(f"Successfully added {processed_count} external usernames")
+                               return UploadResponse(
+                                   message=f"Successfully processed {processed_count} external usernames",
+                                   added_count=processed_count,
+                                   deleted_count=deleted_count
+                               )
+                           else:
+                               raise HTTPException(
+                                   status_code=400,
+                                   detail="No valid usernames to process"
+                               )
+                   except Exception as e:
+                       await session.rollback()
+                       logger.error(f"Error processing external list: {str(e)}")
+                       raise HTTPException(
+                           status_code=500,
+                           detail=f"Failed to process external list: {str(e)}"
+                       )
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error processing {list_type} list: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to process {list_type} list: {str(e)}"
+                )
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                # Don't log validation errors again, just re-raise
+                raise
+            else:
+                error_msg = str(e)
+                logger.error(f"Error processing CSV: {error_msg}", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to process CSV: {error_msg}"
+                ) from e
+    except HTTPException:
+        # Don't log validation errors again, just re-raise
+        raise
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Unexpected error uploading {list_type} list: {error_msg}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload {list_type} list: {error_msg}"
+        ) from e
+
+@router.get("/stats", response_model=FollowStats)
+async def get_stats(session: AsyncSession = Depends(get_db)):
+    """Get current follow system stats"""
+    try:
+        now = datetime.utcnow()
+        yesterday = now - timedelta(days=1)
+        last_hour = now - timedelta(hours=1)
+        last_interval = now - timedelta(minutes=16)
+
+        # Get account statistics
+        account_stats = await session.execute(
+                select(
+                    func.count(Account.id).label('total'),
+                    func.count(Account.id).filter(Account.following_count.between(300, 400)).label('following'),
+                    func.count(Account.id).filter(Account.is_active == True).label('active'),
+                    func.count(Account.id).filter(
+                        or_(
+                            Account.current_15min_requests >= 900,  # Twitter's 15-min limit
+                            Account.current_24h_requests >= 100000,  # Twitter's 24h limit
+                            and_(
+                                Account.rate_limit_until.isnot(None),
+                                Account.rate_limit_until > datetime.utcnow()
+                            )
+                        )
+                    ).label('rate_limited')
+                ).select_from(Account)
+            )
+        account_stats = account_stats.first()
+        
+        # Get follow list statistics
+        list_stats = await session.execute(
+            select(
+                func.count(FollowList.id).filter(FollowList.list_type == ListType.INTERNAL).label('total_internal'),
+                func.count(FollowList.id).filter(FollowList.list_type == ListType.EXTERNAL).label('total_external'),
+                func.count(FollowList.id).filter(
+                    and_(
+                        FollowList.list_type == ListType.INTERNAL,
+                        FollowList.status == 'pending'
+                    )
+                ).label('pending_internal'),
+                func.count(FollowList.id).filter(
+                    and_(
+                        FollowList.list_type == ListType.EXTERNAL,
+                        FollowList.status == 'pending'
+                    )
+                ).label('pending_external')
+            ).select_from(FollowList)
+        )
+        list_stats = list_stats.first()
+
+        # Get follow progress statistics
+        progress_stats = await session.execute(
+            select(
+                func.count(FollowProgress.id).filter(
+                    and_(
+                        FollowProgress.followed_at >= yesterday,
+                        FollowProgress.status == 'completed'
+                    )
+                ).label('today'),
+                func.count(FollowProgress.id).filter(
+                    and_(
+                        FollowProgress.followed_at >= last_interval,
+                        FollowProgress.status == 'completed'
+                    )
+                ).label('interval'),
+                func.count(FollowProgress.id).filter(
+                    FollowProgress.status == 'completed'
+                ).label('successful'),
+                func.count(FollowProgress.id).filter(
+                    FollowProgress.status == 'failed'
+                ).label('failed')
+            ).select_from(FollowProgress)
+        )
+        progress_stats = progress_stats.first()
+
+        # Calculate performance metrics with SQL
+        performance_stats = await session.execute(
+            select(
+                func.count(FollowProgress.id).label('total_follows'),
+                func.sum(case(
+                    (FollowProgress.status == 'completed', 1),
+                    else_=0
+                )).label('successful_follows'),
+                func.count(FollowProgress.id).filter(
+                    and_(
+                        FollowProgress.followed_at >= last_hour,
+                        FollowProgress.status == 'completed'
+                    )
+                ).label('hourly_follows')
+            ).select_from(FollowProgress)
+        )
+        performance_stats = performance_stats.first()
+        
+        total_follows = performance_stats.total_follows or 0
+        successful_follows = performance_stats.successful_follows or 0
+        hourly_follows = performance_stats.hourly_follows or 0
+        
+        success_rate = successful_follows / total_follows if total_follows > 0 else 0.0
+
+        # Get scheduler status
+        try:
+            from ..main import follow_scheduler
+            active_group = await follow_scheduler.get_active_group()
+            next_group_start = await follow_scheduler.get_next_group_start()
+            
+            # Get settings for system_active_since
+            settings = await session.execute(select(FollowSettings))
+            settings = settings.scalar_one_or_none()
+            system_active_since = settings.meta_data.get('last_start') if settings and settings.meta_data else None
+            if system_active_since and isinstance(system_active_since, str):
+                system_active_since = datetime.fromisoformat(system_active_since)
+        except Exception as e:
+            logger.error(f"Error getting scheduler status: {str(e)}", exc_info=True)
+            active_group = None
+            next_group_start = None
+            system_active_since = None
+
+        # Create stats object with all metrics
+        stats = FollowStats(
+            total_accounts=account_stats.total,
+            accounts_following=account_stats.following,
+            active_accounts=account_stats.active,
+            rate_limited_accounts=account_stats.rate_limited,
+            
+            total_internal=list_stats.total_internal,
+            total_external=list_stats.total_external,
+            pending_internal=list_stats.pending_internal,
+            pending_external=list_stats.pending_external,
+            
+            follows_today=progress_stats.today,
+            follows_this_interval=progress_stats.interval,
+            successful_follows=progress_stats.successful,
+            failed_follows=progress_stats.failed,
+            
+            active_group=active_group,
+            next_group_start=next_group_start,
+            system_active_since=system_active_since,
+            
+            average_success_rate=success_rate,
+            average_follows_per_hour=float(hourly_follows)
+        )
+        
+        logger.info(f"Generated follow system stats: {stats.model_dump_json(indent=2)}")
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting follow stats: {str(e)}", exc_info=True)
+        if hasattr(e, '__cause__'):
+            logger.error(f"Caused by: {str(e.__cause__)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get follow stats: {str(e)}"
+        )
+
+@router.post("/start")
+async def start_follow_system(session: AsyncSession = Depends(get_db)):
+    """Start the follow system"""
+    try:
+        async with session.begin():
+            # Get and validate settings
+            settings = await session.execute(select(FollowSettings))
+            settings = settings.scalar_one_or_none()
+            
+            if not settings:
+                raise HTTPException(400, "Follow settings not configured")
+            
+            # Validate essential settings
+            if settings.max_follows_per_interval < 1:
+                raise HTTPException(400, "Invalid max_follows_per_interval setting")
+            if settings.interval_minutes < 1:
+                raise HTTPException(400, "Invalid interval_minutes setting")
+            if settings.max_follows_per_day < 1:
+                raise HTTPException(400, "Invalid max_follows_per_day setting")
+            if settings.schedule_groups < 1:
+                raise HTTPException(400, "Invalid schedule_groups setting")
+            
+            # Check if we have any valid accounts
+            valid_accounts = await session.execute(
+                select(func.count(Account.id)).where(
+                    and_(
+                        Account.act_type == 'worker',
+                        Account.auth_token.isnot(None),
+                        Account.ct0.isnot(None),
+                        Account.deleted_at.is_(None),
+                        Account.following_count < settings.max_following
+                    )
+                )
+            )
+            valid_count = valid_accounts.scalar() or 0
+            
+            if valid_count == 0:
+                raise HTTPException(400, "No valid worker accounts available")
+            
+            logger.info(f"Found {valid_count} valid worker accounts")
+            
+            # Update settings and mark as active
+            settings.is_active = True
+            settings.last_updated = datetime.utcnow()
+            settings.meta_data = {
+                **(settings.meta_data or {}),
+                "last_start": datetime.utcnow().isoformat(),
+                "valid_accounts": valid_count
+            }
+            
+            # Start scheduler with fresh state
+            try:
+                from ..main import follow_scheduler
+                if follow_scheduler.is_running():
+                    logger.info("Stopping existing scheduler")
+                    await follow_scheduler.stop()
+                
+                logger.info("Starting follow scheduler")
+                await follow_scheduler.start()
+                
+                return {
+                    "message": "Follow system started successfully",
+                    "active_accounts": valid_count,
+                    "settings": {
+                        "max_follows_per_day": settings.max_follows_per_day,
+                        "interval_minutes": settings.interval_minutes,
+                        "schedule_groups": settings.schedule_groups
+                    }
+                }
+            except Exception as e:
+                settings.is_active = False
+                await session.flush()
+                logger.error(f"Failed to start scheduler: {str(e)}", exc_info=True)
+                raise HTTPException(500, f"Failed to start scheduler: {str(e)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting follow system: {str(e)}", exc_info=True)
+        raise HTTPException(500, f"Failed to start follow system: {str(e)}")
+
+@router.post("/stop")
+async def stop_follow_system(session: AsyncSession = Depends(get_db)):
+    """Stop the follow system"""
+    try:
+        async with session.begin():
+            # Get current settings
+            settings = await session.execute(select(FollowSettings))
+            settings = settings.scalar_one_or_none()
+            
+            if not settings:
+                raise HTTPException(400, "Follow settings not configured")
+            
+            # Update settings
+            was_active = settings.is_active
+            settings.is_active = False
+            settings.last_updated = datetime.utcnow()
+            settings.meta_data = {
+                **(settings.meta_data or {}),
+                "last_stop": datetime.utcnow().isoformat()
+            }
+            
+            # Stop scheduler
+            try:
+                from ..main import follow_scheduler
+                if follow_scheduler.is_running():
+                    logger.info("Stopping follow scheduler")
+                    await follow_scheduler.stop()
+                
+                return {
+                    "message": "Follow system stopped successfully",
+                    "was_active": was_active
+                }
+            except Exception as e:
+                logger.error(f"Error stopping scheduler: {str(e)}", exc_info=True)
+                raise HTTPException(500, f"Failed to stop scheduler: {str(e)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error stopping follow system: {str(e)}", exc_info=True)
+        raise HTTPException(500, f"Failed to stop follow system: {str(e)}")

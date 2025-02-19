@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Text, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, UniqueConstraint, Index, JSON
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import text
 from datetime import datetime
@@ -18,7 +18,7 @@ class Action(Base):
     task_id = Column(Integer, ForeignKey("tasks.id"))
     
     # Valid values for validation
-    VALID_ACTION_TYPES = ['like_tweet', 'retweet_tweet', 'reply_tweet', 'quote_tweet', 'create_tweet']
+    VALID_ACTION_TYPES = ['like_tweet', 'retweet_tweet', 'reply_tweet', 'quote_tweet', 'create_tweet', 'follow_user', 'send_dm']
     VALID_STATUSES = ['pending', 'running', 'completed', 'failed', 'cancelled', 'locked']
     VALID_API_METHODS = ['graphql', 'rest']
     

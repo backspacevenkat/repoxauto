@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 def get_alembic_config():
     """Get Alembic configuration."""
     alembic_cfg = Config()
-    alembic_cfg.set_main_option("script_location", "backend/migrations")
-    alembic_cfg.set_main_option("sqlalchemy.url", "sqlite:///backend/xauto.db")
+    alembic_cfg.set_main_option("script_location", "migrations")
+    alembic_cfg.set_main_option("sqlalchemy.url", "sqlite:///xauto.db")
     return alembic_cfg
 
 def create_migration_files():
     """Create initial migration files if they don't exist."""
-    migrations_dir = "backend/migrations"
+    migrations_dir = "migrations"
     versions_dir = os.path.join(migrations_dir, "versions")
     
     try:

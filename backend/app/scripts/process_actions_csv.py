@@ -8,7 +8,7 @@ from typing import List, Dict, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_session
+from ..database import get_db
 from ..models import Account, Action
 from ..services.action_processor import ActionProcessor
 
@@ -76,33 +76,41 @@ class ActionCSVProcessor:
                     
                     try:
                         # Basic validation
-                        if not all([row['account_no'], row['task_type'], row['source_tweet']]):
+                        if not all([row['account_no'], row['task_type']]):
                             raise ValueError("Missing required fields")
                             
                         # Validate and map task type
-                        task_type = row['task_type'].lower()
-                        action_type = None
+                        # Map task types to action types
+                        task_type_map = {
+                            'like': 'like_tweet',
+                            'rt': 'retweet_tweet',
+                            'retweet': 'retweet_tweet',
+                            'reply': 'reply_tweet',
+                            'quote': 'quote_tweet',
+                            'post': 'create_tweet',
+                            'dm': 'send_dm',
+                            'DM': 'send_dm',  # Add uppercase variant
+                            'LIKE': 'like_tweet',
+                            'RT': 'retweet_tweet',
+                            'RETWEET': 'retweet_tweet',
+                            'REPLY': 'reply_tweet',
+                            'QUOTE': 'quote_tweet',
+                            'POST': 'create_tweet'
+                        }
                         
-                        # Current action types
-                        if task_type == 'like':
-                            action_type = 'like_tweet'
-                        elif task_type in ['rt', 'retweet']:
-                            action_type = 'retweet_tweet'
-                        # Future action types (placeholder)
-                        elif task_type == 'reply':
-                            action_type = 'reply_tweet'
+                        # Try original case first, then lowercase
+                        action_type = task_type_map.get(row['task_type']) or task_type_map.get(row['task_type'].lower())
+                        if not action_type:
+                            raise ValueError(f"Invalid task type: {row['task_type']}")
+                            
+                        # Validate required fields based on action type
+                        if action_type in ['reply_tweet', 'quote_tweet', 'create_tweet', 'send_dm']:
                             if not row.get('text_content'):
-                                raise ValueError("text_content required for reply action")
-                        elif task_type == 'quote':
-                            action_type = 'quote_tweet'
-                            if not row.get('text_content'):
-                                raise ValueError("text_content required for quote tweet")
-                        elif task_type == 'post':
-                            action_type = 'create_tweet'
-                            if not row.get('text_content'):
-                                raise ValueError("text_content required for post action")
-                        else:
-                            raise ValueError(f"Invalid task type: {task_type}")
+                                raise ValueError(f"text_content required for {action_type}")
+                                
+                        if action_type == 'send_dm':
+                            if not row.get('user'):
+                                raise ValueError("user required for DM action")
                             
                         # Get account
                         account = await self._get_account_by_no(row['account_no'])
@@ -113,17 +121,21 @@ class ActionCSVProcessor:
                         action_data = {
                             'account_id': account.id,
                             'action_type': action_type,
-                            'tweet_url': row['source_tweet'],
+                            'tweet_url': None if action_type == 'send_dm' else row['source_tweet'],
                             'priority': int(row.get('priority', 0)),
                             'row': row_idx,
                             'meta_data': {}
                         }
                         
-                        # Add optional fields if present
+                        # Add fields to meta_data
+                        meta_data = {}
                         if row.get('text_content'):
-                            action_data['meta_data']['text_content'] = row['text_content']
+                            meta_data['text_content'] = row['text_content']
                         if row.get('media'):
-                            action_data['meta_data']['media'] = row['media']
+                            meta_data['media'] = row['media']
+                        if row.get('user'):
+                            meta_data['user'] = row['user']
+                        action_data['meta_data'] = meta_data
                             
                         # Add to processing list
                         actions_to_process.append(action_data)
@@ -142,7 +154,7 @@ class ActionCSVProcessor:
             for action in actions_to_process:
                 try:
                     # Create a new session for each action
-                    async with get_session() as action_session:
+                    async with get_db() as action_session:
                         processor = ActionProcessor(action_session)
                         
                         # Add delay between actions to respect rate limits
@@ -152,8 +164,10 @@ class ActionCSVProcessor:
                         success, error, queued_action = await processor.queue_action(
                             account_id=action['account_id'],
                             action_type=action['action_type'],
-                            tweet_url=action['tweet_url'],
-                            priority=action['priority']
+                            tweet_url=action['tweet_url'] if action['action_type'] not in ['create_tweet', 'follow_user', 'send_dm'] else None,
+                            user=action['meta_data'].get('user'),
+                            priority=action['priority'],
+                            meta_data=action['meta_data']
                         )
                         
                         if success:
@@ -193,7 +207,7 @@ async def process_actions_file(csv_path: str) -> Dict:
     """Main function to process actions CSV file"""
     try:
         # Get database session
-        async with get_session() as session:
+        async with get_db() as session:
             processor = ActionCSVProcessor(session)
             return await processor.process_csv(csv_path)
             

@@ -5,7 +5,7 @@ import sys
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import async_session
+from ..database import db_manager
 from ..services.action_processor import ActionProcessor
 
 # Configure logging
@@ -43,7 +43,7 @@ class ActionWorker:
             while self.running:
                 try:
                     # Create new session for each iteration
-                    session = async_session()
+                    session = db_manager.async_session()
                     async with session as session:
                         self.processor = ActionProcessor(session)
                         # Process queue
@@ -86,7 +86,7 @@ class ActionWorker:
         while self.running:
             try:
                 # Create new session for cleanup
-                session = async_session()
+                session = db_manager.async_session()
                 async with session as session:
                     processor = ActionProcessor(session)
                     await processor.cleanup()

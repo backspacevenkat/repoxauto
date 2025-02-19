@@ -17,7 +17,11 @@ import {
   Settings as SettingsIcon,
   Dashboard as DashboardIcon,
   Search as SearchIcon,
-  PlayArrow as ActionsIcon
+  PlayArrow as ActionsIcon,
+  Person as ProfileIcon,
+  PersonAdd as FollowIcon,
+  Key as KeyIcon,
+  Help as HelpIcon
 } from '@mui/icons-material';
 
 const DRAWER_WIDTH = 240;
@@ -25,10 +29,14 @@ const DRAWER_WIDTH = 240;
 const menuItems = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
   { text: 'Accounts', icon: <PeopleIcon />, path: '/accounts' },
+  { text: 'Act Setup', icon: <KeyIcon />, path: '/act-setup' },
   { text: 'Tasks', icon: <TaskIcon />, path: '/tasks' },
   { text: 'Search', icon: <SearchIcon />, path: '/search' },
   { text: 'Actions', icon: <ActionsIcon />, path: '/actions' },
-  { text: 'Settings', icon: <SettingsIcon />, path: '/settings' }
+  { text: 'Profile Updates', icon: <ProfileIcon />, path: '/profile-updates' },
+  { text: 'Follow System', icon: <FollowIcon />, path: '/follow' },
+  { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
+  { text: 'Help', icon: <HelpIcon />, path: '/help' }
 ];
 
 export default function Layout({ children }) {

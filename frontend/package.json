@@ -14,9 +14,12 @@
     "@mui/icons-material": "^5.15.1",
     "@mui/material": "^5.15.1",
     "axios": "^1.6.2",
+    "date-fns": "^4.1.0",
     "next": "^14.0.4",
+    "notistack": "^3.0.2",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-dropzone": "^14.3.5"
   },
   "devDependencies": {
     "@types/node": "^20.10.5",

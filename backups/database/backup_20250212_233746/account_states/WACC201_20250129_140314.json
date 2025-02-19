@@ -1,0 +1,35 @@
+{
+  "account_no": "WACC201",
+  "timestamp": "20250129_140314",
+  "account_data": {
+    "account_no": "WACC201",
+    "act_type": "worker",
+    "login": "laura804475256",
+    "password": "cvck48010e",
+    "email": "lfeaymuw@maillv.com",
+    "email_password": "gkjlfiliS4888",
+    "auth_token": "08848104ee0361b7a92fd4c25d8efb5bb914050b",
+    "ct0": "85a3156f9be9fb2a7b8a53e4f6e8d0211ce39a353e7cc894ae5f74af3d7fda69be9181e3b26161636aad7e5de4a0258b23e94c502d532de51fd35ef0a7588bcb0f4e1f76e17a0bccc297b18ffb37d68e",
+    "two_fa": "UDLX2HTDM3HYZFCL",
+    "proxy_url": "gw.dataimpulse.com",
+    "proxy_port": 10201,
+    "proxy_username": "4dc12c1b7e96f324a06a__cr.us",
+    "proxy_password": "f9218ab87aa14602",
+    "user_agent": "Mozilla/5.0 (Linux; Android 11; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    "consumer_key": NaN,
+    "consumer_secret": NaN,
+    "bearer_token": NaN,
+    "access_token": NaN,
+    "access_token_secret": NaN,
+    "client_id": NaN,
+    "client_secret": NaN,
+    "language_status": NaN,
+    "developer_status": "Failed",
+    "unlock_status": NaN
+  },
+  "status": {
+    "account_status": null,
+    "language_status": NaN,
+    "developer_status": "Failed"
+  }
+}

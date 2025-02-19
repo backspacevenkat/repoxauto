@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, validator
 from typing import Optional, Dict, Any, List, ForwardRef
 from datetime import datetime
 from enum import Enum
+import json
 
 class TaskType(str, Enum):
     # Search and scraping tasks
@@ -21,6 +22,7 @@ class TaskType(str, Enum):
 
 class TaskStatus(str, Enum):
     PENDING = "pending"
+    LOCKED = "locked"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -181,6 +183,10 @@ class TaskStats(BaseModel):
             values['tasks_per_minute'] > 0):
             return values['pending_tasks'] / values['tasks_per_minute']
         return None
+
+    def model_dump(self, **kwargs):
+        data = super().model_dump(**kwargs)
+        return json.loads(json.dumps(data))
 
     class Config:
         from_attributes = True

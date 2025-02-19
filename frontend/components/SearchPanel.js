@@ -29,7 +29,7 @@ import {
     MoreHoriz as MoreIcon
 } from '@mui/icons-material';
 
-const BACKEND_URL = 'http://localhost:9000';
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000') + '/api';
 
 const SearchPanel = () => {
     // State management
@@ -86,8 +86,12 @@ const SearchPanel = () => {
     const fetchSearchTasks = async () => {
         try {
             const response = await fetch(
-                `${BACKEND_URL}/tasks/list?type=search_trending,search_tweets,search_users&page_size=20`
-            );
+                `${API_BASE_URL}/tasks/list?type=search_trending,search_tweets,search_users&page_size=20`, {
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            });
             if (!response.ok) {
                 throw new Error(`Failed to fetch tasks: ${response.statusText}`);
             }
@@ -243,12 +247,12 @@ const SearchPanel = () => {
 
             // Make request
             console.log('Making API request:', {
-                endpoint: `${BACKEND_URL}${endpoint}`,
+                endpoint: `${API_BASE_URL}${endpoint}`,
                 method,
                 hasBody: !!body
             });
 
-            const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, {
                 method,
                 headers: {
                     'Content-Type': 'application/json',
@@ -334,7 +338,7 @@ const SearchPanel = () => {
         try {
             setLoading(true);
             
-            const response = await fetch(`${BACKEND_URL}/api/search/${searchType}`, {
+            const response = await fetch(`${API_BASE_URL}/search/${searchType}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

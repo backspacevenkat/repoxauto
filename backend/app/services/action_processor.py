@@ -1,7 +1,7 @@
 import logging
 import asyncio
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Union
 from sqlalchemy import select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,29 +24,56 @@ class ActionProcessor:
         self,
         account_id: int,
         action_type: str,
-        tweet_url: str,
-        priority: int = 0
+        tweet_url: Optional[str] = None,
+        user: Optional[str] = None,
+        priority: int = 0,
+        meta_data: Optional[Dict] = None
     ) -> Tuple[bool, Optional[str], Optional[Action]]:
         """Queue a new action for processing"""
         try:
-            # Extract tweet ID from URL
-            try:
-                tweet_id = tweet_url.split("/status/")[-1].split("?")[0]
-            except Exception as e:
-                return False, f"Invalid tweet URL: {str(e)}", None
-
-            # Check for existing pending or running action
-            existing_action = await self.session.execute(
-                select(Action).where(
-                    and_(
-                        Action.account_id == account_id,
-                        Action.action_type == action_type,
-                        Action.tweet_id == tweet_id,
-                        Action.status.in_(["pending", "running", "locked"])
+            tweet_id = None
+            
+            # Handle non-tweet actions (follow_user and send_dm) differently
+            if action_type in ["follow_user", "send_dm"]:
+                if not user:
+                    return False, "user parameter required for follow action", None
+                    
+                # Check for existing pending or running follow action for this user
+                existing_action = await self.session.execute(
+                    select(Action).where(
+                        and_(
+                            Action.account_id == account_id,
+                            Action.action_type == action_type,
+                            Action.meta_data['user'].astext == user,
+                            Action.status.in_(["pending", "running", "locked"])
+                        )
                     )
                 )
-            )
-            existing_action = existing_action.scalar_one_or_none()
+                existing_action = existing_action.scalar_one_or_none()
+                
+            else:
+                # For tweet-based actions
+                if action_type not in ["create_tweet", "follow_user", "send_dm"] and not tweet_url:
+                    return False, "tweet_url required for tweet actions", None
+                    
+                # Extract tweet ID from URL
+                try:
+                    tweet_id = tweet_url.split("/status/")[-1].split("?")[0]
+                except Exception as e:
+                    return False, f"Invalid tweet URL: {str(e)}", None
+
+                # Check for existing pending or running action
+                existing_action = await self.session.execute(
+                    select(Action).where(
+                        and_(
+                            Action.account_id == account_id,
+                            Action.action_type == action_type,
+                            Action.tweet_id == tweet_id,
+                            Action.status.in_(["pending", "running", "locked"])
+                        )
+                    )
+                )
+                existing_action = existing_action.scalar_one_or_none()
             
             if existing_action:
                 return False, "Action already queued or in progress", existing_action
@@ -71,11 +98,24 @@ class ActionProcessor:
             )
             
             # Add meta_data
-            action.meta_data = {
-                "tweet_url": tweet_url,
+            action_meta_data = {
                 "priority": priority,
                 "queued_at": datetime.utcnow().isoformat()
             }
+            
+            # Add tweet_url for tweet actions
+            if tweet_url:
+                action_meta_data["tweet_url"] = tweet_url
+                
+            # Add user for follow actions
+            if user:
+                action_meta_data["user"] = user
+                
+            # Add any additional meta_data
+            if meta_data:
+                action_meta_data.update(meta_data)
+                
+            action.meta_data = action_meta_data
             
             # Create associated task
             from ..models.task import Task
@@ -85,6 +125,7 @@ class ActionProcessor:
                     "account_id": account_id,
                     "tweet_id": tweet_id,
                     "tweet_url": tweet_url,
+                    "user": user,
                     "meta_data": action.meta_data
                 },
                 priority=priority,
@@ -211,8 +252,8 @@ class ActionProcessor:
             media = meta_data.get('media')
             api_method = meta_data.get('api_method', 'graphql')  # Default to graphql if not specified
 
-            # Get source tweet data first (except for create_tweet)
-            if action.action_type != "create_tweet":
+            # Get source tweet data first (except for create_tweet and follow_user)
+            if action.action_type not in ["create_tweet", "follow_user"]:
                 try:
                     tweet_data = await client._process_tweet_data({
                         'rest_id': action.tweet_id,
@@ -228,7 +269,12 @@ class ActionProcessor:
                     self.logger.warning(f"Error getting source tweet data: {str(e)}")
 
             # Execute action based on type
-            if action.action_type == "like_tweet":
+            if action.action_type == "follow_user":
+                user = meta_data.get('user')
+                if not user:
+                    raise ValueError("user required for follow action")
+                result = await client.follow_user(user)
+            elif action.action_type == "like_tweet":
                 result = await client.like_tweet(action.tweet_id)
             elif action.action_type == "retweet_tweet":
                 result = await client.retweet(action.tweet_id)
@@ -244,24 +290,112 @@ class ActionProcessor:
                 if not text_content:
                     raise ValueError("text_content required for create tweet")
                 result = await client.create_tweet(text_content, media)
+            elif action.action_type == "send_dm":
+                user = meta_data.get('user')
+                if not user:
+                    raise ValueError("user required for DM action")
+                if not text_content:
+                    raise ValueError("text_content required for DM action")
+                result = await client.send_dm(user, text_content, media)
+            elif action.action_type == "profile_update":
+                # Get profile update record
+                profile_update_id = meta_data.get("profile_update_id")
+                if not profile_update_id:
+                    raise ValueError("profile_update_id required for profile update action")
+
+                # Get profile update record
+                from ..models.profile_update import ProfileUpdate
+                profile_update = await self.session.get(ProfileUpdate, profile_update_id)
+                if not profile_update:
+                    raise ValueError(f"Profile update {profile_update_id} not found")
+
+                # Update profile update status
+                profile_update.status = "processing"
+                await self.session.commit()
+
+                try:
+                    # Prepare update data (only include non-None fields)
+                    update_data = {}
+                    if profile_update.name is not None:
+                        update_data["name"] = profile_update.name
+                    if profile_update.description is not None:
+                        update_data["description"] = profile_update.description
+                    if profile_update.url is not None:
+                        update_data["url"] = profile_update.url
+                    if profile_update.location is not None:
+                        update_data["location"] = profile_update.location
+                    if profile_update.lang is not None:
+                        update_data["lang"] = profile_update.lang
+
+                    # Handle profile image if provided
+                    if profile_update.profile_image_path:
+                        media_ids = await client.upload_media([profile_update.profile_image_path])
+                        if media_ids:
+                            update_data["profile_image"] = media_ids[0]
+
+                    # Handle profile banner if provided
+                    if profile_update.profile_banner_path:
+                        media_ids = await client.upload_media([profile_update.profile_banner_path])
+                        if media_ids:
+                            update_data["profile_banner"] = media_ids[0]
+
+                    # Make the update request
+                    result = await client.update_profile(**update_data)
+
+                    # Update profile update status
+                    profile_update.status = "completed" if result.get("success") else "failed"
+                    profile_update.meta_data = {
+                        **(profile_update.meta_data or {}),
+                        "result": result,
+                        "completed_at": datetime.utcnow().isoformat()
+                    }
+                    await self.session.commit()
+
+                except Exception as e:
+                    profile_update.status = "failed"
+                    profile_update.meta_data = {
+                        **(profile_update.meta_data or {}),
+                        "error": str(e),
+                        "failed_at": datetime.utcnow().isoformat()
+                    }
+                    await self.session.commit()
+                    raise
             else:
                 raise ValueError(f"Unknown action type: {action.action_type}")
 
-            # Store result tweet data if action succeeded
-            if result["success"] and result.get("tweet_id"):
+            # Store result data if action succeeded
+            if result["success"]:
+                # Get account username for URL construction
+                account = await self.session.get(Account, action.account_id)
+                result_data = {
+                    'success': True,
+                    'tweet_id': result.get("tweet_id"),
+                }
+
+                # Construct result tweet URL based on action type
+                if result.get("tweet_id") and account:
+                    if action.action_type in ['reply_tweet', 'quote_tweet', 'create_tweet']:
+                        result_data['tweet_url'] = f"https://twitter.com/{account.username}/status/{result['tweet_id']}"
+                    elif action.action_type == 'retweet_tweet':
+                        result_data['tweet_url'] = f"https://twitter.com/{account.username}/status/{result['tweet_id']}"
+
+                # Store detailed tweet data if available
                 try:
-                    result_tweet_data = await client._process_tweet_data({
-                        'rest_id': result["tweet_id"],
-                        'legacy': {}  # Will be populated by API
-                    })
-                    if result_tweet_data:
-                        action.meta_data = {
-                            **(action.meta_data or {}),
-                            'result_tweet_id': result["tweet_id"],
-                            'result_tweet_data': result_tweet_data
-                        }
+                    if result.get("tweet_id"):
+                        result_tweet_data = await client._process_tweet_data({
+                            'rest_id': result["tweet_id"],
+                            'legacy': {}  # Will be populated by API
+                        })
+                        if result_tweet_data:
+                            result_data['tweet_data'] = result_tweet_data
                 except Exception as e:
                     self.logger.warning(f"Error getting result tweet data: {str(e)}")
+
+                # Update action meta_data with result
+                action.meta_data = {
+                    **(action.meta_data or {}),
+                    'result': result_data
+                }
 
             # Update action status based on result
             if result["success"]:

@@ -25,7 +25,7 @@ import {
 import { TrendingUp as TrendingUpIcon } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000') + '/api';
 
 const formatDateTime = (dateStr) => {
   if (!dateStr) return '';
@@ -95,7 +95,12 @@ export default function TaskDetailsModal({ open, onClose, taskId }) {
   const fetchTask = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/tasks/${taskId}`);
+      const response = await axios.get(`${API_BASE_URL}/tasks/${taskId}`, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
       setTask(response.data);
       setError(null);
 
@@ -636,20 +641,79 @@ export default function TaskDetailsModal({ open, onClose, taskId }) {
                       </Stack>
                     </TableCell>
                   </TableRow>
+                  {/* Source Tweet */}
+                  {(task.input_params?.tweet_url || task.input_params?.source_tweet) && (
+                    <TableRow>
+                      <TableCell component="th">Source Tweet</TableCell>
+                      <TableCell>
+                        <Link
+                          href={task.input_params?.tweet_url || task.input_params?.source_tweet}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          sx={{ 
+                            color: 'primary.main',
+                            '&:hover': { textDecoration: 'underline' }
+                          }}
+                        >
+                          View Source Tweet
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {/* Result Tweet */}
+                  {(task.result?.result?.tweet_url || task.result?.tweet_url || task.result?.result_tweet) && (
+                    <TableRow>
+                      <TableCell component="th">Result Tweet</TableCell>
+                      <TableCell>
+                        <Link
+                          href={task.result?.result?.tweet_url || task.result?.tweet_url || task.result?.result_tweet}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          sx={{ 
+                            color: 'success.main',
+                            '&:hover': { textDecoration: 'underline' }
+                          }}
+                        >
+                          {task.type === 'retweet' ? 'View Retweet' :
+                           task.type === 'reply' ? 'View Reply' :
+                           task.type === 'quote' ? 'View Quote' :
+                           task.type === 'like' ? 'View Like' :
+                           'View Result'}
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  )}
                   <TableRow>
                     <TableCell component="th">Worker Account</TableCell>
                     <TableCell>
                       {task.worker_account ? (
                         <Box>
-                          <Typography variant="body2">
-                            Account: {task.worker_account.account_no}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            Success Rate: {task.worker_account.success_rate?.toFixed(1)}%
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            Tasks: {task.worker_account.total_tasks || 0}
-                          </Typography>
+                          <Stack direction="row" spacing={2} alignItems="center">
+                            <Typography variant="body1" fontWeight="medium">
+                              {task.worker_account.account_no}
+                            </Typography>
+                            <Chip
+                              size="small"
+                              label={task.worker_account.status || 'active'}
+                              color={task.worker_account.status === 'active' ? 'success' : 'warning'}
+                            />
+                          </Stack>
+                          <Stack direction="row" spacing={2} mt={1}>
+                            <Typography variant="body2" color="text.secondary">
+                              Success Rate: {task.worker_account.success_rate?.toFixed(1)}%
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Tasks: {task.worker_account.total_tasks || 0}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              API: {task.worker_account.api_method || 'graphql'}
+                            </Typography>
+                          </Stack>
+                          {task.worker_account.last_validation && (
+                            <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                              Last Validation: {task.worker_account.last_validation}
+                            </Typography>
+                          )}
                         </Box>
                       ) : '-'}
                     </TableCell>
@@ -684,6 +748,7 @@ export default function TaskDetailsModal({ open, onClose, taskId }) {
               </Table>
             </TableContainer>
 
+            {/* Task Result */}
             {task?.status === 'completed' && task?.result && (
               <Box mt={2}>
                 {task.type === 'search_trending' ? (
@@ -712,20 +777,6 @@ export default function TaskDetailsModal({ open, onClose, taskId }) {
                               </Stack>
                             </Box>
                           </Stack>
-                        </Paper>
-                      ))}
-                    </Box>
-                  </Box>
-                ) : task.type === 'search_tweets' ? (
-                  <Box>
-                    <Typography variant="subtitle2" gutterBottom>
-                      Tweet Search Results for "{task.input_params?.keyword ?? ''}"
-                      ({task.result?.tweets?.length ?? 0} tweets)
-                    </Typography>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {(task.result?.tweets ?? []).map((tweet, index) => (
-                        <Paper key={index} variant="outlined">
-                          {renderTweet(tweet)}
                         </Paper>
                       ))}
                     </Box>

@@ -31,7 +31,7 @@ async def test_account_validation():
     try:
         # Create httpx client
         async with httpx.AsyncClient(
-            base_url="http://localhost:8000",
+            base_url="http://localhost:9000",
             timeout=30.0,
             follow_redirects=True
         ) as client:

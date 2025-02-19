@@ -4,9 +4,16 @@ from datetime import datetime
 from sqlalchemy import select
 from ..models.task import Task
 from ..models.account import Account
-from ..services.task_queue import TaskQueue
+from ..services.task_manager import TaskManager
 from ..schemas.task import TaskType, TaskStatus
-from ..database import get_session
+from ..database import db_manager
+
+@pytest.fixture
+async def task_manager(test_db_session):
+    """Create and initialize task manager"""
+    manager = await TaskManager.get_instance(test_db_session)
+    await manager.initialize()
+    return manager
 
 @pytest.mark.asyncio
 async def test_task_creation(test_db_session):
@@ -23,11 +30,11 @@ async def test_task_creation(test_db_session):
     test_db_session.add(account)
     await test_db_session.commit()
 
-    # Create task queue
-    task_queue = TaskQueue(lambda: test_db_session)
-
+    # Get task manager
+    task_manager = await TaskManager.get_instance(test_db_session)
+    
     # Create a task
-    task = await task_queue.add_task(
+    task = await task_manager.add_task(
         test_db_session,
         TaskType.SCRAPE_PROFILE,
         {"username": "test_user"},
@@ -55,14 +62,14 @@ async def test_task_processing(test_db_session):
     test_db_session.add(account)
     await test_db_session.commit()
 
-    # Create task queue
-    task_queue = TaskQueue(lambda: test_db_session)
+    # Get task manager
+    task_manager = await TaskManager.get_instance(test_db_session)
 
-    # Create and start task queue
-    await task_queue.start()
+    # Start task manager
+    await task_manager.start()
 
     # Create a task
-    task = await task_queue.add_task(
+    task = await task_manager.add_task(
         test_db_session,
         TaskType.SCRAPE_PROFILE,
         {"username": "test_user"},
@@ -76,8 +83,8 @@ async def test_task_processing(test_db_session):
         if task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
             break
 
-    # Stop task queue
-    await task_queue.stop()
+    # Stop task manager
+    await task_manager.stop()
 
     assert task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED]
     if task.status == TaskStatus.COMPLETED:
@@ -100,13 +107,13 @@ async def test_rate_limiting(test_db_session):
     test_db_session.add(account)
     await test_db_session.commit()
 
-    # Create task queue
-    task_queue = TaskQueue(lambda: test_db_session)
+    # Get task manager
+    task_manager = await TaskManager.get_instance(test_db_session)
 
     # Create multiple tasks rapidly
     tasks = []
     for i in range(10):
-        task = await task_queue.add_task(
+        task = await task_manager.add_task(
             test_db_session,
             TaskType.SCRAPE_PROFILE,
             {"username": f"test_user_{i}"},
@@ -115,7 +122,7 @@ async def test_rate_limiting(test_db_session):
         tasks.append(task)
 
     # Start processing
-    await task_queue.start()
+    await task_manager.start()
 
     # Wait briefly
     await asyncio.sleep(2)
@@ -128,8 +135,8 @@ async def test_rate_limiting(test_db_session):
     # Some tasks should still be pending due to rate limiting
     assert len(pending_tasks) > 0
 
-    # Stop task queue
-    await task_queue.stop()
+    # Stop task manager
+    await task_manager.stop()
 
 @pytest.mark.asyncio
 async def test_task_priority(test_db_session):
@@ -146,18 +153,18 @@ async def test_task_priority(test_db_session):
     test_db_session.add(account)
     await test_db_session.commit()
 
-    # Create task queue
-    task_queue = TaskQueue(lambda: test_db_session)
+    # Get task manager
+    task_manager = await TaskManager.get_instance(test_db_session)
 
     # Create tasks with different priorities
-    low_priority = await task_queue.add_task(
+    low_priority = await task_manager.add_task(
         test_db_session,
         TaskType.SCRAPE_PROFILE,
         {"username": "low_priority"},
         priority=0
     )
 
-    high_priority = await task_queue.add_task(
+    high_priority = await task_manager.add_task(
         test_db_session,
         TaskType.SCRAPE_PROFILE,
         {"username": "high_priority"},
@@ -165,7 +172,7 @@ async def test_task_priority(test_db_session):
     )
 
     # Start processing
-    await task_queue.start()
+    await task_manager.start()
 
     # Wait briefly
     await asyncio.sleep(1)
@@ -177,13 +184,13 @@ async def test_task_priority(test_db_session):
     # High priority task should be processed first
     assert high_priority.started_at < low_priority.started_at
 
-    # Stop task queue
-    await task_queue.stop()
+    # Stop task manager
+    await task_manager.stop()
 
 @pytest.fixture
 async def test_db_session():
     """Create a test database session"""
-    async_session = get_session()
+    async_session = db_manager.async_session()
     async with async_session() as session:
         yield session
         # Cleanup

@@ -25,7 +25,7 @@ import {
 import Link from 'next/link';
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000') + '/api';
 
 const TaskType = {
   SCRAPE_PROFILE: 'scrape_profile',
@@ -77,16 +77,36 @@ export default function Dashboard() {
       try {
         setLoading(true);
         const [statsResponse, tasksResponse] = await Promise.all([
-          axios.get(`${API_BASE_URL}/tasks/stats`),
-          axios.get(`${API_BASE_URL}/tasks/list?page=1&page_size=5`)
+          axios.get(`${API_BASE_URL}/tasks/stats`, {
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            }
+          }),
+          axios.get(`${API_BASE_URL}/tasks/list?page=1&page_size=5`, {
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            }
+          })
         ]);
-        
+
+        // Check if responses are valid
+        if (!statsResponse.data) {
+          throw new Error('Invalid stats response');
+        }
+
+        if (!tasksResponse.data || !Array.isArray(tasksResponse.data.tasks)) {
+          throw new Error('Invalid tasks response');
+        }
+
         setStats(statsResponse.data);
-        setRecentTasks(tasksResponse.data.tasks || []);
+        setRecentTasks(tasksResponse.data.tasks);
         setError(null);
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
-        setError('Failed to load dashboard data');
+        const errorMessage = err.response?.data?.detail || err.message || 'Failed to load dashboard data';
+        setError(errorMessage);
       } finally {
         setLoading(false);
       }

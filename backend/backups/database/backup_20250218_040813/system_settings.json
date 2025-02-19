@@ -1,0 +1,9 @@
+[
+  {
+    "id": null,
+    "max_concurrent_workers": null,
+    "max_requests_per_worker": null,
+    "request_interval": null,
+    "updated_at": null
+  }
+]

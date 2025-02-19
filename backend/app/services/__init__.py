@@ -1,9 +1,9 @@
-from .task_queue import TaskQueue
 from .rate_limiter import RateLimiter
 from .twitter_client import TwitterClient
+from .task_manager import TaskManager
 
 __all__ = [
-    'TaskQueue',
+    'TaskManager',
     'RateLimiter',
     'TwitterClient'
 ]

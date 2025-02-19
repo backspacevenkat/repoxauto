@@ -1,23 +1,23 @@
 from .app import (
     Account,
     Task,
-    TaskQueue,
+    TaskManager,
     RateLimiter,
     TwitterClient,
     accounts,
     tasks,
     init_db,
-    get_session
+    get_db
 )
 
 __all__ = [
     'Account',
     'Task',
-    'TaskQueue',
+    'TaskManager',
     'RateLimiter',
     'TwitterClient',
     'accounts',
     'tasks',
     'init_db',
-    'get_session'
+    'get_db'
 ]

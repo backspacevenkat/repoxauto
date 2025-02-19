@@ -1,13 +1,14 @@
 import csv
 import io
+import json
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Path, status, Request
-from sqlalchemy import func, select, and_, case
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Path, status, Request, Response
+from sqlalchemy import func, select, and_, case, text, DateTime, Integer, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..database import get_db, async_session
+from ..database import get_db, db_manager
 from ..models.task import Task
-from ..models.account import Account, ValidationState
-from ..services.task_queue import TaskQueue
+from ..models.account import Account, ValidationState, OAuthSetupState
+from ..services.task_manager import TaskManager
 from ..schemas.task import (
     TaskCreate, TaskRead, TaskBulkCreate, TaskBulkResponse,
     TaskList, TaskStats, TaskType, TaskStatus, TaskUpdate
@@ -16,44 +17,44 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-task_queue = TaskQueue(get_db)
 
-async def verify_worker_accounts() -> List[Account]:
+def get_task_manager(request: Request):
+    """Get the task manager instance from app state"""
+    if not hasattr(request.app.state, 'task_manager'):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Task manager not initialized"
+        )
+    return request.app.state.task_manager
+
+async def verify_worker_accounts(request: Request, session: AsyncSession) -> List[Account]:
     """Verify that there are available worker accounts"""
     try:
-        async with async_session() as session:
-            # Get all worker accounts
-            logger.info("Querying worker accounts...")
-            stmt = select(Account).where(Account.act_type == 'worker')
-            result = await session.execute(stmt)
-            workers = list(result.scalars().all())  # Convert to list to avoid session issues
-            logger.info(f"Found {len(workers)} total worker accounts")
+        # Get task manager from app state
+        task_manager = get_task_manager(request)
+        
+        # Refresh worker list
+        await task_manager.refresh_workers()
+        
+        if not task_manager.available_workers:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No worker accounts available. Please add worker accounts before creating tasks."
+            )
+        
+        # Log worker states
+        for worker in task_manager.available_workers:
+            logger.info(f"Found worker {worker.account_no}: active={worker in task_manager.active_workers}, health={task_manager.worker_health.get(worker, 'unknown')}")
             
-            if not workers:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="No worker accounts available. Please add worker accounts before creating tasks."
-                )
-                
-            # Log worker account states
-            for worker in workers:
-                logger.info(f"Found worker {worker.account_no}: active={worker.is_active}, validation={worker.validation_in_progress}")
-            
-            # Check for active workers
-            logger.info("Checking for active workers...")
-            active_workers = []
-            for w in workers:
-                logger.info(f"Worker {w.account_no}: active={w.is_active}, validation={w.validation_in_progress}, type={type(w.validation_in_progress)}")
-                if w.is_active and w.validation_in_progress == ValidationState.COMPLETED:
-                    active_workers.append(w)
-            if not active_workers:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"No active worker accounts available. Found {len(workers)} workers but none are active and completed validation."
-                )
-                
-            logger.info(f"Found {len(active_workers)} active workers ready for tasks")
-            return active_workers
+            # Skip workers with invalid oauth setup
+            if worker.oauth_setup_status not in [OAuthSetupState.COMPLETED, OAuthSetupState.PENDING]:
+                logger.warning(f"Worker {worker.account_no} has invalid oauth setup status: {worker.oauth_setup_status}")
+                continue
+        
+        # Log available workers
+        logger.info(f"Found {len(task_manager.available_workers)} total workers")
+        
+        return task_manager.available_workers
     except Exception as e:
         logger.error(f"Error verifying worker accounts: {str(e)}")
         raise
@@ -61,12 +62,13 @@ async def verify_worker_accounts() -> List[Account]:
 @router.post("/create", response_model=TaskRead)
 async def create_task(
     task_data: TaskCreate,
+    request: Request,
     session: AsyncSession = Depends(get_db)
 ):
     """Create a single task"""
     try:
         # Verify worker accounts
-        active_workers = await verify_worker_accounts()
+        active_workers = await verify_worker_accounts(request, session)
         if not active_workers:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -101,7 +103,8 @@ async def create_task(
                     detail="Create tweet requires text content in meta_data"
                 )
 
-        task = await task_queue.add_task(
+        task_manager = get_task_manager(request)
+        task = await task_manager.add_task(
             session,
             task_data.type,
             task_data.input_params,
@@ -121,12 +124,13 @@ async def create_task(
 @router.post("/bulk", response_model=TaskBulkResponse)
 async def create_bulk_tasks(
     bulk_data: TaskBulkCreate,
+    request: Request,
     session: AsyncSession = Depends(get_db)
 ):
     """Create multiple tasks from a list of usernames"""
     try:
         # Verify worker accounts
-        active_workers = await verify_worker_accounts()
+        active_workers = await verify_worker_accounts(request, session)
         
         # Calculate max concurrent tasks based on rate limits
         max_tasks = len(active_workers) * 900  # 900 requests per 15min per account
@@ -137,29 +141,29 @@ async def create_bulk_tasks(
             )
 
         tasks = []
-        async with async_session() as session:
-            for username in bulk_data.usernames:
-                if not username:
-                    continue
+        for username in bulk_data.usernames:
+            if not username:
+                continue
 
-                input_params = {
-                    "username": username
-                }
-                if bulk_data.task_type == TaskType.SCRAPE_TWEETS:
-                    input_params.update({
-                        "count": bulk_data.count,
-                        "hours": bulk_data.hours,
-                        "max_replies": bulk_data.max_replies
-                    })
+            input_params = {
+                "username": username
+            }
+            if bulk_data.task_type == TaskType.SCRAPE_TWEETS:
+                input_params.update({
+                    "count": bulk_data.count,
+                    "hours": bulk_data.hours,
+                    "max_replies": bulk_data.max_replies
+                })
 
-                task = await task_queue.add_task(
-                    session,
-                    bulk_data.task_type,
-                    input_params,
-                    bulk_data.priority
-                )
-                tasks.append(task)
-            await session.commit()
+            task_manager = get_task_manager(request)
+            task = await task_manager.add_task(
+                session,
+                bulk_data.task_type,
+                input_params,
+                bulk_data.priority
+            )
+            tasks.append(task)
+        await session.commit()
 
         return TaskBulkResponse(
             message=f"Created {len(tasks)} tasks",
@@ -176,17 +180,19 @@ async def create_bulk_tasks(
 
 @router.post("/upload", response_model=TaskBulkResponse)
 async def create_tasks_from_csv(
+    request: Request,
     file: UploadFile = File(...),
     task_type: TaskType = Query(..., description="Type of task to create"),
     count: Optional[int] = Query(15, ge=1, le=100, description="Number of tweets to fetch (for tweet tasks)"),
     hours: Optional[int] = Query(24, ge=1, le=168, description="Hours to look back for tweets"),
     max_replies: Optional[int] = Query(7, ge=0, le=20, description="Maximum number of replies to fetch per tweet"),
-    priority: Optional[int] = Query(0, ge=0, le=10, description="Task priority")
+    priority: Optional[int] = Query(0, ge=0, le=10, description="Task priority"),
+    session: AsyncSession = Depends(get_db)
 ):
     """Create tasks from CSV file of usernames"""
     try:
         # Get active worker accounts
-        active_workers = await verify_worker_accounts()
+        active_workers = await verify_worker_accounts(request, session)
         if not active_workers:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -224,26 +230,26 @@ async def create_tasks_from_csv(
             )
 
         tasks = []
-        async with async_session() as session:
-            for username in usernames:
-                input_params = {
-                    "username": username
-                }
-                if task_type == TaskType.SCRAPE_TWEETS:
-                    input_params.update({
-                        "count": count,
-                        "hours": hours,
-                        "max_replies": max_replies
-                    })
+        for username in usernames:
+            input_params = {
+                "username": username
+            }
+            if task_type == TaskType.SCRAPE_TWEETS:
+                input_params.update({
+                    "count": count,
+                    "hours": hours,
+                    "max_replies": max_replies
+                })
 
-                task = await task_queue.add_task(
-                    session,
-                    task_type,
-                    input_params,
-                    priority
-                )
-                tasks.append(task)
-            await session.commit()
+            task_manager = get_task_manager(request)
+            task = await task_manager.add_task(
+                session,
+                task_type,
+                input_params,
+                priority
+            )
+            tasks.append(task)
+        await session.commit()
 
         return TaskBulkResponse(
             message=f"Created {len(tasks)} tasks from CSV",
@@ -317,8 +323,9 @@ async def list_tasks(
             detail=f"Failed to list tasks: {str(e)}"
         )
 
-@router.get("/stats", response_model=TaskStats)
+@router.get("/stats")
 async def get_task_stats(
+    request: Request,
     session: AsyncSession = Depends(get_db)
 ):
     """Get task statistics"""
@@ -339,27 +346,15 @@ async def get_task_stats(
         total = sum(counts.values())
         completed = counts.get(TaskStatus.COMPLETED, 0)
 
-        # Get worker account stats
-        # Get worker stats
-        worker_stats = await session.execute(
-            select(
-                func.count().label('total_workers'),
-                func.sum(
-                    case(
-                        (Account.last_validation_time > func.datetime('now', '-1 day'), 1),
-                        else_=0
-                    )
-                ).label('active_workers'),
-                func.sum(
-                    case(
-                        (Account.current_15min_requests >= 900, 1),
-                        else_=0
-                    )
-                ).label('rate_limited_workers')
-            )
-            .where(Account.act_type == 'worker')
+        # Get worker stats from task manager
+        task_manager = get_task_manager(request)
+        worker_status = task_manager.get_status()
+        
+        # Get rate limited workers count
+        rate_limited_workers = sum(
+            1 for worker_data in worker_status["worker_utilization"].values()
+            if worker_data["rate_limit_status"]["requests_15min"] >= task_manager.settings.max_requests_per_worker
         )
-        worker_counts = worker_stats.first()
 
         # Calculate tasks per minute
         if completed > 0 and avg_time:
@@ -367,19 +362,23 @@ async def get_task_stats(
         else:
             tasks_per_minute = 0
 
-        return TaskStats(
-            total_tasks=total,
-            pending_tasks=counts.get(TaskStatus.PENDING, 0),
-            running_tasks=counts.get(TaskStatus.RUNNING, 0),
-            completed_tasks=completed,
-            failed_tasks=counts.get(TaskStatus.FAILED, 0),
-            average_completion_time=avg_time.total_seconds() if avg_time else None,
-            success_rate=completed / total * 100 if total > 0 else 0,
-            total_workers=worker_counts.total_workers or 0,
-            active_workers=worker_counts.active_workers or 0,
-            rate_limited_workers=worker_counts.rate_limited_workers or 0,
-            tasks_per_minute=tasks_per_minute,
-            estimated_completion_time=None  # Will be calculated by validator
+        data = {
+            "total_tasks": total,
+            "pending_tasks": counts.get(TaskStatus.PENDING, 0),
+            "running_tasks": counts.get(TaskStatus.RUNNING, 0),
+            "completed_tasks": completed,
+            "failed_tasks": counts.get(TaskStatus.FAILED, 0),
+            "average_completion_time": avg_time.total_seconds() if avg_time else None,
+            "success_rate": completed / total * 100 if total > 0 else 0,
+            "total_workers": worker_status["total_workers"],
+            "active_workers": worker_status["active_workers"],
+            "rate_limited_workers": rate_limited_workers,
+            "tasks_per_minute": tasks_per_minute,
+            "estimated_completion_time": None  # Will be calculated by validator
+        }
+        return Response(
+            content=json.dumps(data, separators=(', ', ':')),
+            media_type="application/json"
         )
     except Exception as e:
         logger.error(f"Error getting task stats: {str(e)}")
@@ -390,11 +389,13 @@ async def get_task_stats(
 
 @router.get("/{task_id}", response_model=TaskRead)
 async def get_task(
+    request: Request,
     task_id: int = Path(..., description="Task ID"),
     session: AsyncSession = Depends(get_db)
 ):
     """Get status and details of a specific task"""
-    task = await task_queue.get_task_status(session, task_id)
+    task_manager = get_task_manager(request)
+    task = await task_manager.get_task_status(session, task_id)
     if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -411,7 +412,8 @@ async def update_task_status(
 ):
     """Update a task's status and broadcast the update via WebSocket."""
     try:
-        task = await task_queue.get_task_status(session, task_id)
+        task_manager = get_task_manager(request)
+        task = await task_manager.get_task_status(session, task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
             
@@ -435,12 +437,36 @@ async def update_task_status(
         logger.error(f"Error updating task {task_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/start")
-async def start_task_queue():
+@router.post("/queue/start")
+async def start_task_queue(request: Request):
     """Start the task queue processor"""
     try:
-        await task_queue.start()
-        return {"message": "Task queue started"}
+        # Get task manager from app state
+        if not hasattr(request.app.state, 'task_manager'):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Task manager not initialized"
+            )
+            
+        task_manager = request.app.state.task_manager
+        
+        # Start queue
+        if await task_manager.start():
+            # Update app state
+            request.app.state.task_queue_running = True
+            
+            # Broadcast update
+            await request.app.state.connection_manager.broadcast({
+                "type": "queue_status",
+                "status": "running",
+                "message": "Task queue started successfully"
+            })
+            
+            return {"message": "Task queue started"}
+        return {"message": "Task queue already running"}
+            
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error starting task queue: {str(e)}")
         raise HTTPException(
@@ -448,15 +474,113 @@ async def start_task_queue():
             detail=f"Failed to start task queue: {str(e)}"
         )
 
-@router.post("/stop")
-async def stop_task_queue():
+@router.post("/queue/stop")
+async def stop_task_queue(request: Request):
     """Stop the task queue processor"""
     try:
-        await task_queue.stop()
+        # Get task manager from app state
+        if not hasattr(request.app.state, 'task_manager'):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Task manager not initialized"
+            )
+            
+        task_manager = request.app.state.task_manager
+        
+        # Stop queue
+        await task_manager.stop()
+        
+        # Update app state
+        request.app.state.task_queue_running = False
+        
+        # Broadcast update
+        await request.app.state.connection_manager.broadcast({
+            "type": "queue_status",
+            "status": "stopped",
+            "message": "Task queue stopped successfully"
+        })
+        
         return {"message": "Task queue stopped"}
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error stopping task queue: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to stop task queue: {str(e)}"
+        )
+
+@router.post("/queue/pause")
+async def pause_task_queue(request: Request):
+    """Pause the task queue processor"""
+    try:
+        # Get task manager from app state
+        if not hasattr(request.app.state, 'task_manager'):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Task manager not initialized"
+            )
+            
+        task_manager = request.app.state.task_manager
+        
+        # Pause queue
+        if await task_manager.pause():
+            # Update app state
+            request.app.state.task_queue_running = False
+            
+            # Broadcast update
+            await request.app.state.connection_manager.broadcast({
+                "type": "queue_status",
+                "status": "paused",
+                "message": "Task queue paused successfully"
+            })
+            
+            return {"message": "Task queue paused"}
+        return {"message": "Task queue not running"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error pausing task queue: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to pause task queue: {str(e)}"
+        )
+
+@router.post("/queue/resume")
+async def resume_task_queue(request: Request):
+    """Resume the task queue processor"""
+    try:
+        # Get task manager from app state
+        if not hasattr(request.app.state, 'task_manager'):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Task manager not initialized"
+            )
+            
+        task_manager = request.app.state.task_manager
+        
+        # Resume queue
+        if await task_manager.resume():
+            # Update app state
+            request.app.state.task_queue_running = True
+            
+            # Broadcast update
+            await request.app.state.connection_manager.broadcast({
+                "type": "queue_status",
+                "status": "running",
+                "message": "Task queue resumed successfully"
+            })
+            
+            return {"message": "Task queue resumed"}
+        return {"message": "Task queue not paused"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resuming task queue: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to resume task queue: {str(e)}"
         )

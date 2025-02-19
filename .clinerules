@@ -1,0 +1,217 @@
+# Xauto Project Rules
+
+## Project Structure
+- Backend code lives in /backend/app/
+- Frontend code lives in /frontend/
+- All new features must include tests
+- Follow existing module organization patterns
+
+## Code Style & Patterns
+
+### Python
+- Use Python 3.11+ features
+- Async/await for all I/O operations
+- Type hints required
+- Black formatting required
+- Flake8 compliance required
+
+### Error Handling
+- Always use try/except with specific exceptions
+- Implement retry logic for network operations
+- Log all errors with context
+- Use custom exception classes
+
+### Example Error Pattern:
+```python
+try:
+    # Operation
+except PlaywrightTimeoutError as e:
+    logger.error(f"Timeout error: {str(e)}")
+    # Retry logic
+except Exception as e:
+    logger.error(f"Unexpected error: {str(e)}")
+    # General error handling
+finally:
+    # Resource cleanup
+```
+
+## File Organization
+
+### Backend
+- models/ - Database models
+- routers/ - API endpoints
+- schemas/ - Pydantic schemas
+- services/ - Business logic
+- tests/ - Test files
+
+### Frontend
+- components/ - React components
+- pages/ - Next.js pages
+- services/ - API clients
+- styles/ - CSS styles
+
+## Sensitive Files
+DO NOT read or modify:
+- .env files
+- **/config/secrets.*
+- Any file containing API keys or tokens
+- Credential files
+
+## Development Workflow
+
+### New Features
+1. Create feature branch
+2. Write tests first
+3. Implement feature
+4. Add documentation
+5. Create pull request
+
+### Bug Fixes
+1. Create regression test
+2. Fix bug
+3. Verify fix
+4. Update documentation
+
+## Documentation Requirements
+
+### Code Documentation
+- Docstrings for all functions
+- Type hints for all parameters
+- Clear error descriptions
+- Usage examples
+
+### Example Documentation:
+```python
+async def validate_account(
+    account_data: Dict[str, Any],
+    retry_count: int = 3
+) -> ValidationResult:
+    """
+    Validate Twitter account status and credentials.
+    
+    Args:
+        account_data: Account details including credentials
+        retry_count: Number of validation attempts
+        
+    Returns:
+        ValidationResult with status and details
+        
+    Raises:
+        ValidationError: If validation fails
+        ProxyError: If proxy connection fails
+    """
+```
+
+## Testing Standards
+
+### Unit Tests
+- Required for all business logic
+- Mock external dependencies
+- Test error cases
+- Verify retry logic
+
+### Integration Tests
+- Required for API endpoints
+- Test with real database
+- Verify WebSocket updates
+- Check error responses
+
+## Common Patterns
+
+### Account Operations
+```python
+# Always use account_no as identifier
+result = await db.execute(
+    select(Account).where(Account.account_no == account_no)
+)
+
+# Always handle validation state
+account.validation_in_progress = ValidationState.VALIDATING
+await db.commit()
+```
+
+### Task Processing
+```python
+# Always include task metadata
+task_data = {
+    "type": task_type,
+    "account_id": account.id,
+    "params": input_params,
+    "created_at": datetime.utcnow()
+}
+
+# Always broadcast status updates
+await broadcast_message(request, "task_update", {
+    "task_type": task_type,
+    "status": status,
+    "message": message
+})
+```
+
+### Proxy Management
+```python
+# Always construct full proxy URL
+proxy_url = construct_proxy_url(
+    username=proxy_username,
+    password=proxy_password,
+    host=proxy_host,
+    port=proxy_port
+)
+
+# Always include proxy in client config
+proxy_config = {
+    "server": f"http://{proxy_host}:{proxy_port}",
+    "username": proxy_username,
+    "password": proxy_password
+}
+```
+
+## Performance Guidelines
+
+### Database
+- Use async operations
+- Implement pagination
+- Index frequently queried fields
+- Optimize bulk operations
+
+### Task Processing
+- Implement batch processing
+- Use appropriate chunk sizes
+- Monitor resource usage
+- Handle rate limits
+
+### Browser Automation
+- Reuse browser contexts
+- Clean up resources
+- Handle timeouts
+- Implement retry logic
+
+## Security Guidelines
+
+### Credential Handling
+- Never log credentials
+- Always encrypt sensitive data
+- Use environment variables
+- Rotate secrets regularly
+
+### Request Validation
+- Validate all inputs
+- Sanitize data
+- Use rate limiting
+- Implement authentication
+
+## Monitoring Requirements
+
+### Logging
+- Use structured logging
+- Include context
+- Log appropriate levels
+- Rotate log files
+
+### Metrics
+- Track task completion rates
+- Monitor resource usage
+- Record error rates
+- Measure response times
+
+This .clinerules file serves as a guide for maintaining consistency in development practices across the Xauto project. Follow these patterns and guidelines when implementing new features or making changes to existing code.

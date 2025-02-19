@@ -45,7 +45,7 @@ import {
 import axios from 'axios';
 import TaskDetailsModal from '../components/TaskDetailsModal';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000') + '/api';
 
 const formatPST = (dateStr) => {
   if (!dateStr) return '';
@@ -150,7 +150,7 @@ export default function TasksPage() {
       const handleMessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === 'task_update') {
+          if (data.type === 'task_update' || data.type === 'queue_status') {
             fetchTasks();
             fetchStats();
           }
@@ -166,7 +166,12 @@ export default function TasksPage() {
 
   const fetchSettings = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/settings`);
+      const response = await axios.get(`${API_BASE_URL}/settings`, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
       setSettings(response.data);
     } catch (err) {
       console.error('Failed to fetch settings:', err);
@@ -182,7 +187,13 @@ export default function TasksPage() {
         ...(filters.status && { status: filters.status }),
         ...(filters.type && { type: filters.type })
       };
-      const response = await axios.get(`${API_BASE_URL}/tasks/list`, { params });
+      const response = await axios.get(`${API_BASE_URL}/tasks/list`, { 
+        params,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
       
       // Group tasks by type
       const groupedTasks = response.data.tasks.reduce((acc, task) => {
@@ -204,7 +215,12 @@ export default function TasksPage() {
 
   const fetchStats = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/tasks/stats`);
+      const response = await axios.get(`${API_BASE_URL}/tasks/stats`, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
       setStats(response.data);
     } catch (err) {
       console.error('Failed to fetch stats:', err);
@@ -231,6 +247,7 @@ export default function TasksPage() {
           max_replies: tweetParams.max_replies
         },
         headers: {
+          'Accept': 'application/json',
           'Content-Type': 'multipart/form-data'
         }
       });
@@ -252,7 +269,12 @@ export default function TasksPage() {
 
   const handleSaveSettings = async () => {
     try {
-      await axios.post(`${API_BASE_URL}/settings`, settings);
+      await axios.post(`${API_BASE_URL}/settings`, settings, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
       setSettingsOpen(false);
       fetchStats();
     } catch (err) {
@@ -372,34 +394,108 @@ export default function TasksPage() {
         {/* Stats */}
         {stats && (
           <Grid item xs={12}>
-            <Paper sx={{ p: 2, display: 'flex', gap: 2, position: 'relative' }}>
-              <Box>
-                <Typography variant="subtitle2">Total Tasks</Typography>
-                <Typography variant="h6">{stats.total_tasks}</Typography>
-              </Box>
-              <Box>
-                <Typography variant="subtitle2">Success Rate</Typography>
-                <Typography variant="h6">{stats.success_rate.toFixed(1)}%</Typography>
-              </Box>
-              <Box>
-                <Typography variant="subtitle2">Running</Typography>
-                <Typography variant="h6">{stats.running_tasks}</Typography>
-              </Box>
-              <Box>
-                <Typography variant="subtitle2">Pending</Typography>
-                <Typography variant="h6">{stats.pending_tasks}</Typography>
-              </Box>
-              <Box>
-                <Typography variant="subtitle2">Active Workers</Typography>
-                <Typography variant="h6">{stats.active_workers}/{stats.total_workers}</Typography>
-              </Box>
-              <Button
-                sx={{ position: 'absolute', right: 16 }}
-                startIcon={<SettingsIcon />}
-                onClick={() => setSettingsOpen(true)}
-              >
-                Settings
-              </Button>
+            <Paper sx={{ p: 2 }}>
+              <Grid container spacing={2}>
+                {/* Stats */}
+                <Grid item xs={12} md={8}>
+                  <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                    <Box>
+                      <Typography variant="subtitle2">Total Tasks</Typography>
+                      <Typography variant="h6">{stats.total_tasks}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="subtitle2">Success Rate</Typography>
+                      <Typography variant="h6">{stats.success_rate.toFixed(1)}%</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="subtitle2">Running</Typography>
+                      <Typography variant="h6">{stats.running_tasks}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="subtitle2">Pending</Typography>
+                      <Typography variant="h6">{stats.pending_tasks}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="subtitle2">Active Workers</Typography>
+                      <Typography variant="h6">{stats.active_workers}/{stats.total_workers}</Typography>
+                    </Box>
+                  </Box>
+                </Grid>
+                
+                {/* Queue Controls */}
+                <Grid item xs={12} md={4}>
+                  <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', alignItems: 'center' }}>
+                    <Box sx={{ mr: 2 }}>
+                      <Typography variant="subtitle2">Queue Status</Typography>
+                      <Chip
+                        label={stats.queue_status || 'stopped'}
+                        color={
+                          stats.queue_status === 'running' ? 'success' :
+                          stats.queue_status === 'paused' ? 'warning' : 'error'
+                        }
+                        size="small"
+                        sx={{ textTransform: 'capitalize' }}
+                      />
+                    </Box>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      onClick={async () => {
+                        try {
+                          await axios.post(`${API_BASE_URL}/tasks/queue/start`);
+                          fetchStats();
+                        } catch (err) {
+                          setError(err.response?.data?.detail || 'Failed to start queue');
+                        }
+                      }}
+                      disabled={stats.queue_status === 'running'}
+                    >
+                      Start
+                    </Button>
+                    <Button
+                      variant="contained"
+                      color="warning"
+                      onClick={async () => {
+                        try {
+                          if (stats.queue_status === 'paused') {
+                            await axios.post(`${API_BASE_URL}/tasks/queue/resume`);
+                          } else {
+                            await axios.post(`${API_BASE_URL}/tasks/queue/pause`);
+                          }
+                          fetchStats();
+                        } catch (err) {
+                          setError(err.response?.data?.detail || 'Failed to pause/resume queue');
+                        }
+                      }}
+                      disabled={stats.queue_status === 'stopped'}
+                    >
+                      {stats.queue_status === 'paused' ? 'Resume' : 'Pause'}
+                    </Button>
+                    <Button
+                      variant="contained"
+                      color="error"
+                      onClick={async () => {
+                        try {
+                          await axios.post(`${API_BASE_URL}/tasks/queue/stop`);
+                          fetchStats();
+                        } catch (err) {
+                          setError(err.response?.data?.detail || 'Failed to stop queue');
+                        }
+                      }}
+                      disabled={stats.queue_status === 'stopped'}
+                    >
+                      Stop
+                    </Button>
+                    <Button
+                      sx={{ ml: 2 }}
+                      startIcon={<SettingsIcon />}
+                      onClick={() => setSettingsOpen(true)}
+                    >
+                      Settings
+                    </Button>
+                  </Box>
+                </Grid>
+              </Grid>
             </Paper>
           </Grid>
         )}

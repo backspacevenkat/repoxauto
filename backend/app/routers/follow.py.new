@@ -1,0 +1,139 @@
+@router.get("/follow/stats")
+async def get_follow_stats(
+    db: AsyncSession = Depends(get_db),
+    follow_scheduler: FollowScheduler = Depends(get_follow_scheduler)
+):
+    """Get follow system statistics"""
+    try:
+        # Get account stats
+        accounts = await db.execute(
+            select(
+                func.count(Account.id).label('total'),
+                func.count(Account.id).filter(Account.following_count > 0).label('following'),
+                func.count(Account.id).filter(Account.is_active == True).label('active'),
+                func.count(Account.id).filter(Account.rate_limit_until > datetime.utcnow()).label('rate_limited')
+            ).select_from(Account)
+        )
+        account_stats = accounts.first()
+        
+        # Get follow list stats
+        lists = await db.execute(
+            select(
+                func.count(FollowList.id).filter(FollowList.list_type == ListType.INTERNAL).label('internal'),
+                func.count(FollowList.id).filter(FollowList.list_type == ListType.EXTERNAL).label('external')
+            ).select_from(FollowList)
+        )
+        list_stats = lists.first()
+        
+        # Get pending follows
+        pending = await db.execute(
+            select(
+                func.count(FollowList.id).filter(
+                    FollowList.list_type == ListType.INTERNAL,
+                    ~FollowList.id.in_(
+                        select(FollowProgress.follow_list_id)
+                        .where(FollowProgress.status == "completed")
+                    )
+                ).label('internal_pending'),
+                func.count(FollowList.id).filter(
+                    FollowList.list_type == ListType.EXTERNAL,
+                    ~FollowList.id.in_(
+                        select(FollowProgress.follow_list_id)
+                        .where(FollowProgress.status == "completed")
+                    )
+                ).label('external_pending')
+            ).select_from(FollowList)
+        )
+        pending_stats = pending.first()
+        
+        # Get follow progress stats
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        progress = await db.execute(
+            select(
+                func.count(FollowProgress.id).filter(
+                    FollowProgress.followed_at >= today
+                ).label('today'),
+                func.count(FollowProgress.id).filter(
+                    FollowProgress.followed_at >= datetime.utcnow() - timedelta(minutes=15)
+                ).label('interval'),
+                func.count(FollowProgress.id).filter(
+                    FollowProgress.status == "completed"
+                ).label('successful'),
+                func.count(FollowProgress.id).filter(
+                    FollowProgress.status == "failed"
+                ).label('failed')
+            ).select_from(FollowProgress)
+        )
+        progress_stats = progress.first()
+        
+        # Get settings
+        settings = await db.execute(select(FollowSettings))
+        settings = settings.scalar_one_or_none()
+        
+        # Calculate success rate and follows per hour
+        total_follows = progress_stats.successful + progress_stats.failed
+        success_rate = (progress_stats.successful / total_follows * 100) if total_follows > 0 else 0
+        
+        # Get earliest follow
+        earliest_follow = await db.execute(
+            select(func.min(FollowProgress.followed_at))
+            .where(FollowProgress.status == "completed")
+        )
+        earliest_follow = earliest_follow.scalar()
+        
+        if earliest_follow:
+            hours_since_start = (datetime.utcnow() - earliest_follow).total_seconds() / 3600
+            follows_per_hour = progress_stats.successful / hours_since_start if hours_since_start > 0 else 0
+        else:
+            follows_per_hour = 0
+            
+        # Get current group from scheduler or settings
+        current_group = await follow_scheduler.get_active_group()
+        next_group_start = await follow_scheduler.get_next_group_start()
+        
+        # Get group info from settings meta_data if scheduler not running
+        if current_group is None and settings and settings.meta_data:
+            try:
+                current_group = int(settings.meta_data.get('current_group'))
+            except (TypeError, ValueError):
+                current_group = None
+                logger.warning("Invalid current_group in settings meta_data")
+        
+        # Build stats response
+        stats = {
+            "total_accounts": account_stats.total,
+            "accounts_following": account_stats.following,
+            "active_accounts": account_stats.active,
+            "rate_limited_accounts": account_stats.rate_limited,
+            "total_internal": list_stats.internal,
+            "total_external": list_stats.external,
+            "pending_internal": pending_stats.internal_pending,
+            "pending_external": pending_stats.external_pending,
+            "follows_today": progress_stats.today,
+            "follows_this_interval": progress_stats.interval,
+            "successful_follows": progress_stats.successful,
+            "failed_follows": progress_stats.failed,
+            "active_group": (current_group + 1) if current_group is not None else None,
+            "next_group_start": next_group_start.isoformat() if next_group_start else None,
+            "system_active_since": earliest_follow.isoformat() if earliest_follow else None,
+            "average_success_rate": round(success_rate, 1),
+            "average_follows_per_hour": round(follows_per_hour, 1),
+            "system_status": {
+                "is_active": settings.is_active if settings else False,
+                "total_groups": settings.schedule_groups if settings else 3,
+                "hours_per_group": settings.schedule_hours if settings else 8,
+                "max_follows_per_day": settings.max_follows_per_day if settings else 30,
+                "max_follows_per_interval": settings.max_follows_per_interval if settings else 1,
+                "interval_minutes": settings.interval_minutes if settings else 16
+            }
+        }
+        
+        logger.info(f"Generated follow system stats: {json.dumps(stats, indent=2)}")
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Error getting follow stats: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get follow stats: {str(e)}"
+        )

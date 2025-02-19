@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select, and_
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -12,7 +12,6 @@ from ..schemas.search import (
     TrendingTopicsResponse, TopicTweetsResponse, SearchedUsersResponse,
     SearchRequest, BatchSearchRequest, BatchSearchResponse
 )
-from ..services.task_queue import TaskQueue
 from ..services.twitter_client import TwitterClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,9 +23,11 @@ async def get_available_account(session: AsyncSession, task_type: str) -> Option
     stmt = select(Account).where(
         and_(
             Account.is_active == True,
+            Account.is_worker == True,
             Account.auth_token != None,
             Account.ct0 != None,
-            Account.deleted_at == None
+            Account.deleted_at == None,
+            Account.validation_in_progress == ValidationState.COMPLETED
         )
     )
     result = await session.execute(stmt)
@@ -54,6 +55,7 @@ def get_proxy_config(account):
 
 @router.get("/trending")
 async def get_trending_topics(
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """Get current trending topics"""
@@ -72,16 +74,14 @@ async def get_trending_topics(
         )
         
         try:
-            # Create a task for trending topics
-            task = Task(
-                type="search_trending",
-                status="pending",
-                created_at=datetime.utcnow(),
-                input_params={}
+            # Create task using task manager
+            task_manager = request.app.state.task_manager
+            task = await task_manager.add_task(
+                db,
+                "search_trending",
+                {},
+                priority=1
             )
-            db.add(task)
-            await db.commit()
-            await db.refresh(task)
 
             try:
                 result = await client.get_trending_topics()
@@ -109,12 +109,13 @@ async def get_trending_topics(
 
 @router.post("/tweets")
 async def search_tweets(
-    request: SearchRequest,
+    request: Request,
+    search_request: SearchRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """Search tweets"""
     try:
-        logger.info(f"Searching tweets for keyword: {request.keyword}")
+        logger.info(f"Searching tweets for keyword: {search_request.keyword}")
         account = await get_available_account(db, "search_tweets")
         
         if not account:
@@ -128,22 +129,24 @@ async def search_tweets(
         )
         
         try:
-            # Create a task for tweet search
-            task = Task(
-                type="search_tweets",
-                status="pending",
-                created_at=datetime.utcnow(),
-                input_params={"keyword": request.keyword, "count": request.count or 20}
+            # Create task using task manager
+            task_manager = request.app.state.task_manager
+            task = await task_manager.add_task(
+                db,
+                "search_tweets",
+                {
+                    "keyword": search_request.keyword,
+                    "count": search_request.count or 20,
+                    "cursor": search_request.cursor
+                },
+                priority=1
             )
-            db.add(task)
-            await db.commit()
-            await db.refresh(task)
 
             try:
                 result = await client.get_topic_tweets(
-                    keyword=request.keyword,
-                    count=request.count or 20,
-                    cursor=request.cursor
+                    keyword=search_request.keyword,
+                    count=search_request.count or 20,
+                    cursor=search_request.cursor
                 )
                 
                 # Sort tweets by view count
@@ -177,12 +180,13 @@ async def search_tweets(
 
 @router.post("/users")
 async def search_users(
-    request: SearchRequest,
+    request: Request,
+    search_request: SearchRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """Search users"""
     try:
-        logger.info(f"Searching users for keyword: {request.keyword}")
+        logger.info(f"Searching users for keyword: {search_request.keyword}")
         account = await get_available_account(db, "search_users")
         
         if not account:
@@ -196,22 +200,24 @@ async def search_users(
         )
         
         try:
-            # Create a task for user search
-            task = Task(
-                type="search_users",
-                status="pending",
-                created_at=datetime.utcnow(),
-                input_params={"keyword": request.keyword, "count": request.count or 20}
+            # Create task using task manager
+            task_manager = request.app.state.task_manager
+            task = await task_manager.add_task(
+                db,
+                "search_users",
+                {
+                    "keyword": search_request.keyword,
+                    "count": search_request.count or 20,
+                    "cursor": search_request.cursor
+                },
+                priority=1
             )
-            db.add(task)
-            await db.commit()
-            await db.refresh(task)
 
             try:
                 result = await client.search_users(
-                    keyword=request.keyword,
-                    count=request.count or 20,
-                    cursor=request.cursor
+                    keyword=search_request.keyword,
+                    count=search_request.count or 20,
+                    cursor=search_request.cursor
                 )
                 
                 # Sort users by followers count
@@ -242,12 +248,13 @@ async def search_users(
 
 @router.post("/batch")
 async def batch_search(
-    request: BatchSearchRequest,
+    request: Request,
+    batch_request: BatchSearchRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """Batch search tweets and users"""
     try:
-        logger.info(f"Batch searching for keywords: {request.keywords}")
+        logger.info(f"Batch searching for keywords: {batch_request.keywords}")
         account = await get_available_account(db, "search_tweets")
         
         if not account:
@@ -261,33 +268,31 @@ async def batch_search(
         )
         
         try:
-            # Create a task for batch search
-            task = Task(
-                type="batch_search",
-                status="pending",
-                created_at=datetime.utcnow(),
-                input_params={
-                    "keywords": request.keywords,
-                    "count_per_keyword": request.count_per_keyword or 20
-                }
+            # Create task using task manager
+            task_manager = request.app.state.task_manager
+            task = await task_manager.add_task(
+                db,
+                "batch_search",
+                {
+                    "keywords": batch_request.keywords,
+                    "count_per_keyword": batch_request.count_per_keyword or 20
+                },
+                priority=1
             )
-            db.add(task)
-            await db.commit()
-            await db.refresh(task)
 
             try:
                 results = []
-                for keyword in request.keywords:
+                for keyword in batch_request.keywords:
                     # Get tweets
                     tweets_result = await client.get_topic_tweets(
                         keyword=keyword,
-                        count=request.count_per_keyword or 20
+                        count=batch_request.count_per_keyword or 20
                     )
                     
                     # Get users
                     users_result = await client.search_users(
                         keyword=keyword,
-                        count=request.count_per_keyword or 20
+                        count=batch_request.count_per_keyword or 20
                     )
                     
                     # Sort results

@@ -6,7 +6,7 @@ import time
 import asyncio
 import traceback
 from datetime import datetime
-from urllib.parse import parse_qs, urlparse, unquote
+from urllib.parse import parse_qs, urlparse, unquote, quote
 from playwright.async_api import Page, Response
 from twocaptcha import TwoCaptcha
 import httpx
@@ -57,13 +57,24 @@ class CaptchaSolver:
             # Setup response handling
             page.on("response", self.handle_response)
             
-            # Setup frame tracking
+            # Setup frame tracking with enhanced initialization
             page.on("framenavigated", self.handle_frame)
+            page.on("frameattached", lambda frame: self.logger.info(f"Frame attached: {frame.url}"))
+            page.on("framedetached", lambda frame: self.logger.info(f"Frame detached: {frame.url}"))
             
             # Handle console messages
             page.on("console", self.handle_console_message)
             
-            # Enhanced WebSocket and data capture monitoring
+            # Wait for any existing frames to load
+            for frame in page.frames:
+                if 'arkoselabs' in frame.url:
+                    try:
+                        await frame.wait_for_load_state('domcontentloaded', timeout=10000)
+                        self.logger.info(f"Existing frame loaded: {frame.url}")
+                    except Exception as e:
+                        self.logger.error(f"Error loading existing frame: {e}")
+            
+            # Enhanced WebSocket and data capture monitoring with frame support
             await page.add_init_script("""
                 (() => {
                     // Override WebSocket for better data capture
@@ -217,31 +228,55 @@ class CaptchaSolver:
                 self.logger.info(f"Found Arkose frame: {url}")
                 self._last_frame = frame
                 
+                # Wait for frame to be ready
+                try:
+                    await frame.wait_for_load_state('domcontentloaded', timeout=10000)
+                    self.logger.info("Frame DOM content loaded")
+                    await frame.wait_for_load_state('networkidle', timeout=10000)
+                    self.logger.info("Frame network idle")
+                except Exception as e:
+                    self.logger.error(f"Error waiting for frame load states: {e}")
+                
+                # First try URL parameters
                 if 'data=' in url:
                     try:
                         data_param = re.search(r'data=([^&]+)', url)
                         if data_param:
                             self.data_blob = unquote(data_param.group(1))
                             self.logger.info(f"✓ Captured data_blob from frame URL: {self.data_blob}")
+                            return
                     except Exception as e:
-                        self.logger.debug(f"Failed to extract data from frame URL: {e}")
+                        self.logger.debug(f"Failed to extract data from URL: {e}")
                 
-                # Try to extract data_blob from frame's JavaScript context
-                try:
-                    data_blob = await frame.evaluate('''
-                        () => {
-                            return window.data_blob || 
-                                   window.AKROSE_DATA_BLOB || 
-                                   document.querySelector('[data-blob]')?.getAttribute('data-blob') ||
-                                   null;
-                        }
-                    ''')
-                    
-                    if data_blob:
-                        self.data_blob = data_blob
-                        self.logger.info(f"✓ Captured data_blob from frame JS: {self.data_blob}")
-                except Exception as e:
-                    self.logger.debug(f"Failed to extract data from frame JS: {e}")
+                # Then try JavaScript context with retry
+                for attempt in range(3):
+                    try:
+                        data_blob = await frame.evaluate('''
+                            () => {
+                                // Try multiple methods to find data_blob
+                                const blob = window.data_blob || 
+                                           window.AKROSE_DATA_BLOB || 
+                                           document.querySelector('[data-blob]')?.getAttribute('data-blob') ||
+                                           document.querySelector('script[type="text/javascript"]')?.textContent.match(/data_blob["']?\s*[:=]\s*["']([^"']+)["']/)?.[1];
+                                
+                                // Also try URL parameters
+                                if (!blob) {
+                                    const urlParams = new URLSearchParams(window.location.search);
+                                    return urlParams.get('data') || urlParams.get('blob');
+                                }
+                                return blob;
+                            }
+                        ''')
+                        
+                        if data_blob:
+                            self.data_blob = data_blob
+                            self.logger.info(f"✓ Captured data_blob from frame JS (attempt {attempt + 1}): {self.data_blob}")
+                            return
+                        
+                        await asyncio.sleep(1)
+                    except Exception as e:
+                        self.logger.debug(f"Failed attempt {attempt + 1} to extract data from frame JS: {e}")
+                        await asyncio.sleep(1)
                     
         except Exception as e:
             self.logger.error(f"Error in frame handler: {e}")
@@ -249,6 +284,7 @@ class CaptchaSolver:
     async def extract_data_blob_via_evaluate(self):
         """Extract data_blob with enhanced methods."""
         try:
+            # First try to get data_blob from the main page
             self.data_blob = await self.page.evaluate('''
                 () => {
                     // Try multiple methods to find data_blob
@@ -259,9 +295,45 @@ class CaptchaSolver:
                            null;
                 }
             ''')
+            
             if self.data_blob:
                 self.logger.info(f"✓ Captured data_blob via evaluate: {self.data_blob}")
                 await self.take_frame_screenshot(self.page.url)
+                return
+            
+            # If not found, try to find it in iframes
+            frames = self.page.frames
+            for frame in frames:
+                if 'arkoselabs' in frame.url:
+                    self.logger.info(f"Checking frame: {frame.url}")
+                    try:
+                        frame_blob = await frame.evaluate('''
+                            () => {
+                                // Try multiple methods in frame
+                                const blob = window.data_blob || 
+                                           window.AKROSE_DATA_BLOB ||
+                                           document.querySelector('[data-blob]')?.getAttribute('data-blob') ||
+                                           document.querySelector('script[type="text/javascript"]')?.textContent.match(/data_blob["']?\s*[:=]\s*["']([^"']+)["']/)?.[1];
+                                
+                                // Also try to find it in URL parameters
+                                if (!blob) {
+                                    const urlParams = new URLSearchParams(window.location.search);
+                                    return urlParams.get('data') || urlParams.get('blob');
+                                }
+                                return blob;
+                            }
+                        ''')
+                        if frame_blob:
+                            self.data_blob = frame_blob
+                            self.logger.info(f"✓ Captured data_blob from frame: {self.data_blob}")
+                            await self.take_frame_screenshot(frame.url)
+                            return
+                    except Exception as frame_error:
+                        self.logger.error(f"Error extracting from frame: {frame_error}")
+                        continue
+            
+            self.logger.error("Could not find data_blob in page or frames")
+            
         except Exception as e:
             self.logger.error(f"Error extracting data_blob via evaluate: {e}")
 
@@ -271,14 +343,44 @@ class CaptchaSolver:
             if not self.data_blob:
                 self.logger.info("Attempting to extract data_blob...")
                 start_time = time.time()
+                
+                # First wait for Arkose frame to appear
+                arkose_frame = None
+                while not arkose_frame and time.time() - start_time < 30:
+                    for frame in self.page.frames:
+                        if 'arkoselabs' in frame.url:
+                            arkose_frame = frame
+                            self.logger.info(f"Found Arkose frame: {frame.url}")
+                            break
+                    if not arkose_frame:
+                        await asyncio.sleep(1)
+                
+                if not arkose_frame:
+                    self.logger.error("Could not find Arkose frame after 30 seconds")
+                    return False
+                
+                # Wait for frame to load completely
+                try:
+                    await arkose_frame.wait_for_load_state('networkidle', timeout=10000)
+                    self.logger.info("Arkose frame finished loading")
+                except Exception as e:
+                    self.logger.error(f"Error waiting for frame load: {e}")
+                
+                # Now try to extract data_blob
                 while not self.data_blob and time.time() - start_time < 60:
+                    # Try main page first
                     await self.extract_data_blob_via_evaluate()
-                    if not self.data_blob:
-                        for frame in self.page.frames:
-                            if 'arkoselabs' in frame.url:
-                                await self.handle_frame(frame)
-                                if self.data_blob:
-                                    break
+                    if self.data_blob:
+                        break
+                        
+                    # Then try the Arkose frame
+                    try:
+                        await self.handle_frame(arkose_frame)
+                        if self.data_blob:
+                            break
+                    except Exception as e:
+                        self.logger.error(f"Error handling Arkose frame: {e}")
+                    
                     await asyncio.sleep(2)
                 
                 if not self.data_blob:
@@ -323,11 +425,15 @@ class CaptchaSolver:
                 self.logger.error("No data_blob available for 2Captcha.")
                 return None
 
-            # Prepare proxy string with URL encoding
+            # Format proxy string with URL encoding
             try:
-                proxy_str = f"{unquote(self.proxy_config['proxyLogin'])}:{unquote(self.proxy_config['proxyPassword'])}@{self.proxy_config['proxyAddress']}:{self.proxy_config['proxyPort']}"
+                username = quote(self.proxy_config['proxy_username'], safe='')
+                password = quote(self.proxy_config['proxy_password'], safe='')
+                proxy_str = f"{username}:{password}@{self.proxy_config['proxy_url']}:{self.proxy_config['proxy_port']}"
+                self.logger.info(f"Successfully prepared proxy string with username and proxy URL")
             except Exception as e:
-                self.logger.error(f"Failed to prepare proxy string: {e}")
+                self.logger.error(f"Failed to prepare proxy string: {str(e)}")
+                self.logger.error(f"Proxy config keys available: {list(self.proxy_config.keys())}")
                 return None
 
             # Payload exactly matching the format shown
@@ -342,7 +448,7 @@ class CaptchaSolver:
                 'cdn_url': '',
                 'lurl': '',
                 'surl': 'https://client-api.arkoselabs.com',
-                'captchatype': 'funcaptcha',
+                'captchatype': 'FunCaptchaTask',
                 'useragent': self.user_agent,
                 'data': json.dumps({                           # Data as a JSON string
                     "blob": self.data_blob,
@@ -355,7 +461,19 @@ class CaptchaSolver:
             self.logger.info(f"Sending 2Captcha request (Attempt {attempt}/{max_attempts})")
             self.logger.debug(f"Payload: {json.dumps(payload, indent=2)}")
 
-            async with httpx.AsyncClient(verify=False) as client:
+            transport = httpx.AsyncHTTPTransport(
+                proxy=httpx.URL(f"http://{proxy_str}"),
+                verify=False,
+                retries=2
+            )
+            
+            async with httpx.AsyncClient(
+                transport=transport,
+                timeout=httpx.Timeout(30.0),
+                verify=False,
+                follow_redirects=True,
+                http2=False
+            ) as client:
                 try:
                     # Send request with ordered form data
                     response = await client.post(

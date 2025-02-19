@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "is_active": false,
+    "max_follows_per_day": 30,
+    "max_follows_per_interval": 1,
+    "min_following": 300,
+    "max_following": 400,
+    "interval_minutes": 16,
+    "schedule_groups": 3,
+    "schedule_hours": 8,
+    "internal_ratio": 5,
+    "external_ratio": 25,
+    "last_active": null,
+    "meta_data": "{}",
+    "created_at": "2025-02-18T03:50:37.045359",
+    "updated_at": "2025-02-18T03:50:37.045360",
+    "last_updated": "2025-02-18T03:50:37.044159"
+  }
+]

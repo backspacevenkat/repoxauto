@@ -1,71 +1,94 @@
-from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel
-from typing import Optional
-import json
-import os
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from ..database import get_db
+from ..models.settings import SystemSettings
+from ..schemas.settings import SystemSettingsUpdate, SystemSettingsResponse
 
 router = APIRouter()
 
-class Settings(BaseModel):
-    maxWorkers: int
-    requestsPerWorker: int
-    requestInterval: int
-
-SETTINGS_FILE = "settings.json"
-
-def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, 'r') as f:
-            return json.load(f)
-    return {
-        "maxWorkers": 6,
-        "requestsPerWorker": 900,
-        "requestInterval": 15
-    }
-
-def save_settings(settings):
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(settings, f)
-
-@router.get("/settings")
-async def get_settings():
-    """Get current task queue settings"""
+@router.get("/", response_model=SystemSettingsResponse)
+async def get_settings(db: AsyncSession = Depends(get_db)):
+    """Get current system settings"""
     try:
-        return load_settings()
+        result = await db.execute(select(SystemSettings).limit(1))
+        settings = result.scalar_one_or_none()
+        
+        if not settings:
+            # Create default settings if none exist
+            settings = SystemSettings()
+            db.add(settings)
+            await db.commit()
+            await db.refresh(settings)
+            
+        return SystemSettingsResponse(
+            max_concurrent_workers=settings.max_concurrent_workers,
+            max_requests_per_worker=settings.max_requests_per_worker,
+            request_interval=settings.request_interval,
+            id=settings.id,
+            updated_at=settings.updated_at
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to load settings: {str(e)}"
+            detail=f"Error fetching settings: {str(e)}"
         )
 
-@router.post("/settings")
-async def update_settings(settings: Settings):
-    """Update task queue settings"""
+@router.post("/", response_model=SystemSettingsResponse)
+async def update_settings(
+    settings_update: SystemSettingsUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update system settings"""
     try:
-        if settings.maxWorkers < 1 or settings.maxWorkers > 12:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Max workers must be between 1 and 12"
-            )
+        # Get current settings
+        result = await db.execute(select(SystemSettings).limit(1))
+        settings = result.scalar_one_or_none()
         
-        if settings.requestsPerWorker < 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Requests per worker must be positive"
-            )
+        if not settings:
+            settings = SystemSettings()
+            db.add(settings)
+        
+        # Update only provided fields
+        if settings_update.max_concurrent_workers is not None:
+            if settings_update.max_concurrent_workers < 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="max_concurrent_workers must be at least 1"
+                )
+            settings.max_concurrent_workers = settings_update.max_concurrent_workers
             
-        if settings.requestInterval < 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Request interval must be positive"
-            )
+        if settings_update.max_requests_per_worker is not None:
+            if settings_update.max_requests_per_worker < 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="max_requests_per_worker must be at least 1"
+                )
+            settings.max_requests_per_worker = settings_update.max_requests_per_worker
             
-        save_settings(settings.dict())
-        return {"message": "Settings updated successfully"}
+        if settings_update.request_interval is not None:
+            if settings_update.request_interval < 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="request_interval must be at least 1"
+                )
+            settings.request_interval = settings_update.request_interval
+            
+        await db.commit()
+        await db.refresh(settings)
+        
+        return SystemSettingsResponse(
+            max_concurrent_workers=settings.max_concurrent_workers,
+            max_requests_per_worker=settings.max_requests_per_worker,
+            request_interval=settings.request_interval,
+            id=settings.id,
+            updated_at=settings.updated_at
+        )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update settings: {str(e)}"
+            detail=f"Error updating settings: {str(e)}"
         )

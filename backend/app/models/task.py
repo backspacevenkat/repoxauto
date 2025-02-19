@@ -9,15 +9,17 @@ class Task(Base):
     # Valid task types
     VALID_TASK_TYPES = [
         # Tweet interaction tasks
-        'like_tweet', 'retweet_tweet', 'reply_tweet', 'quote_tweet', 'create_tweet',
+        'like_tweet', 'retweet_tweet', 'reply_tweet', 'quote_tweet', 'create_tweet', 'follow_user', 'send_dm',
         # Search and scraping tasks
         'scrape_profile', 'scrape_tweets', 'search_trending', 'search_tweets', 'search_users',
-        'user_profile', 'user_tweets'
+        'user_profile', 'user_tweets',
+        # Profile management tasks
+        'update_profile'
     ]
 
     id = Column(Integer, primary_key=True, index=True)
     type = Column(String, index=True)  # Task type from VALID_TASK_TYPES
-    status = Column(String, index=True, default="pending")  # pending, running, completed, failed
+    status = Column(String, index=True, default="pending")  # pending, locked, running, completed, failed
     input_params = Column(JSON, nullable=False)
     result = Column(JSON, nullable=True)
     error = Column(String, nullable=True)
@@ -42,7 +44,12 @@ class Task(Base):
     )
 
     def __repr__(self):
-        return f"<Task {self.id}: {self.type} - {self.status}>"
+        # Use __dict__ to avoid async attribute access
+        attrs = self.__dict__
+        task_id = attrs.get('id', 'new')
+        task_type = attrs.get('type', 'unknown')
+        task_status = attrs.get('status', 'unknown')
+        return f"<Task {task_id}: {task_type} - {task_status}>"
 
     @validates('type')
     def validate_type(self, key, value):
@@ -61,24 +68,45 @@ class Task(Base):
             if self.started_at:
                 self.execution_time = (self.completed_at - self.started_at).total_seconds()
 
-    def to_dict(self):
-        """Convert task to dictionary"""
+    def sync_to_dict(self):
+        """Convert task to dictionary without async operations"""
+        attrs = self.__dict__
         return {
-            "id": self.id,
-            "type": self.type,
-            "status": self.status,
-            "input_params": self.input_params,
-            "result": self.result,
-            "error": self.error,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "worker_account_id": self.worker_account_id,
-            "priority": self.priority,
-            "retry_count": self.retry_count,
-            "execution_time": self.execution_time,
-            "worker_account": self.worker_account.to_dict() if self.worker_account else None
+            "id": attrs.get('id'),
+            "type": attrs.get('type'),
+            "status": attrs.get('status'),
+            "input_params": attrs.get('input_params'),
+            "result": attrs.get('result'),
+            "error": attrs.get('error'),
+            "created_at": attrs.get('created_at').isoformat() if attrs.get('created_at') else None,
+            "started_at": attrs.get('started_at').isoformat() if attrs.get('started_at') else None,
+            "completed_at": attrs.get('completed_at').isoformat() if attrs.get('completed_at') else None,
+            "worker_account_id": attrs.get('worker_account_id'),
+            "priority": attrs.get('priority'),
+            "retry_count": attrs.get('retry_count'),
+            "execution_time": attrs.get('execution_time'),
+            # Include basic worker info without relationship access
+            "worker_info": {
+                "id": attrs.get('worker_account_id'),
+                "account_no": None  # Will be populated by route handler if needed
+            }
         }
+
+    async def to_dict(self):
+        """Convert task to dictionary with async operations"""
+        base_dict = self.sync_to_dict()
+        
+        # Only try to access worker_account if we have an ID
+        if self.worker_account_id and hasattr(self, 'worker_account'):
+            try:
+                worker = await self.worker_account
+                if worker:
+                    base_dict["worker_info"]["account_no"] = worker.account_no
+            except Exception as e:
+                # Log error but continue without worker details
+                logger.error(f"Error accessing worker account: {e}")
+        
+        return base_dict
 
     @property
     def username(self) -> str:
@@ -109,6 +137,11 @@ class Task(Base):
     def is_pending(self) -> bool:
         """Check if task is pending"""
         return self.status == "pending"
+
+    @property
+    def is_locked(self) -> bool:
+        """Check if task is locked"""
+        return self.status == "locked"
 
     @property
     def can_retry(self) -> bool:
