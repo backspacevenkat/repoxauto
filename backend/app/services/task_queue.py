@@ -891,25 +891,25 @@ class TaskQueue:
         session: AsyncSession,
         batch_size: int = 10
     ) -> List[Task]:
-        """Get pending tasks with row-level locking"""
-        # Use SELECT FOR UPDATE SKIP LOCKED to prevent multiple workers from getting the same tasks
-        stmt = select(Task).where(
-            and_(
-                Task.status == "pending",
-                Task.retry_count < 3
-            )
-        ).order_by(
-            Task.priority.desc(),
-            Task.created_at.asc()
-        ).limit(batch_size).with_for_update(skip_locked=True)
+        """Get pending tasks with row-level locking, wrapped in no_autoflush to reduce premature flushes"""
+        async with session.no_autoflush:
+            stmt = select(Task).where(
+                and_(
+                    Task.status == "pending",
+                    Task.retry_count < 3
+                )
+            ).order_by(
+                Task.priority.desc(),
+                Task.created_at.asc()
+            ).limit(batch_size).with_for_update(skip_locked=True)
         
-        result = await session.execute(stmt)
-        tasks = result.scalars().all()
+            result = await session.execute(stmt)
+            tasks = result.scalars().all()
         
-        if tasks:
-            # Mark tasks as locked
-            for task in tasks:
-                task.status = "locked"
+            if tasks:
+                # Mark tasks as locked without triggering an immediate flush
+                for task in tasks:
+                    task.status = "locked"
         
         return tasks
 
