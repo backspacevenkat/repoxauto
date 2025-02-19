@@ -437,12 +437,8 @@ async def monitor_db_health():
     while True:
         try:
             # Health check
-            if not await db_manager.test_connection(POSTGRES_URL):
-                # Check if it's just PostgreSQL not being available
-                if db_manager.db_type == "postgresql":
-                    logger.debug("PostgreSQL connection lost, attempting to reconnect or fallback...")
-                else:
-                    logger.warning("Database connection lost, attempting to reconnect...")
+            if not await db_manager.test_connection(DATABASE_URL):
+                logger.debug("PostgreSQL connection lost, attempting to reconnect...")
                 await db_manager.initialize()
 
             # Create backup every 6 hours
