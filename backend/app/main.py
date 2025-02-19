@@ -326,7 +326,12 @@ async def startup_event():
         
         # Verify database has tables
         async with db_manager.async_session() as session:
-            result = await session.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+            # Use PostgreSQL-specific query to list tables
+            result = await session.execute(text("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public'
+            """))
             tables = result.scalars().all()
             logger.info(f"Database tables: {tables}")
             
