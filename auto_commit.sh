@@ -9,7 +9,8 @@ if git status --porcelain | grep .; then
   
   # Check for secrets in staged changes (excluding auto_commit.sh) using keywords
   if git diff --cached -- ':!auto_commit.sh' | grep -Ei "openai api key|github personal access token"; then
-    echo "Secrets detected in committed changes. Skipping commit."
+    echo "Secrets detected in committed changes. Skipping commit and unstaging changes."
+    git reset
     exit 1
   fi
   
