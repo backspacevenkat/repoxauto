@@ -78,7 +78,8 @@ class DatabaseManager:
                 "pool_timeout": 30,
                 "pool_pre_ping": True,
                 "connect_args": {
-                    "ssl": "require"
+                    "ssl": True,
+                    "sslmode": "require"
                 }
             }
             
@@ -288,7 +289,6 @@ class DatabaseManager:
                                 continue
                         
                         try:
-                            await session.commit()
                             logger.info(f"Restored table: {table.name}")
                         except Exception as e:
                             logger.error(f"Error committing table {table.name}: {e}")
