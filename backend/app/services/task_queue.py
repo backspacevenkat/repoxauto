@@ -198,23 +198,41 @@ class TaskQueue:
                 session = self.session_maker()
                 # Use session as context manager for proper cleanup
                 async with session:
+                    # Get pending tasks
+                    stmt = select(Task).where(
+                        and_(
+                            Task.status == "pending",
+                            Task.worker_account_id != None,  # Only get tasks that have been assigned to workers
+                            Task.retry_count < 3
+                        )
+                    ).order_by(
+                        Task.priority.desc(),
+                        Task.created_at.asc()
+                    ).limit(10)  # Process in small batches
+                    
+                    result = await session.execute(stmt)
+                    tasks = result.scalars().all()
+                    
+                    if not tasks:
+                        await asyncio.sleep(0.1)
+                        continue
+                    
                     # Process tasks within transaction
                     async with session.begin():
-                        # Get pending tasks
-                        tasks = await self._get_pending_tasks(session)
-                        if not tasks:
-                            await asyncio.sleep(0.1)
-                            continue
-                            
-                        # Process tasks within the same transaction
                         await self._process_task_batch(session, tasks)
+                        await session.commit()
 
             except asyncio.CancelledError:
                 logger.info("Worker received cancel signal")
                 raise
             except Exception as e:
                 logger.error(f"Worker error: {str(e)}", exc_info=True)
+                if session and session.in_transaction():
+                    await session.rollback()
                 await asyncio.sleep(0.1)
+            finally:
+                if session:
+                    await session.close()
 
     async def _get_next_task(self, session: AsyncSession) -> Optional[Task]:
         """Get next available task to process with row-level locking"""
