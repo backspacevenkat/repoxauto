@@ -238,10 +238,8 @@ class TaskQueue:
                         await asyncio.sleep(0.1)
                         continue
                     
-                    # Process tasks within transaction
-                    async with session.begin():
-                        await self._process_task_batch(session, tasks)
-                        await session.commit()
+                    # Process tasks within the same transaction
+                    await self._process_task_batch(session, tasks)
 
             except asyncio.CancelledError:
                 logger.info("Worker received cancel signal")
