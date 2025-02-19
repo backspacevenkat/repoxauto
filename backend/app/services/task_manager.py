@@ -618,44 +618,43 @@ class TaskManager:
                 if self.queue_status == QueueStatus.RUNNING:
                     session = await self._get_session()
                     try:
-                        async with session.begin():
-                            # Get fresh worker instances
-                            active_worker_ids = [w.id for w in self.active_workers]
-                            active_workers = await self._load_workers_by_ids(session, active_worker_ids)
+                        # Get fresh worker instances
+                        active_worker_ids = [w.id for w in self.active_workers]
+                        active_workers = await self._load_workers_by_ids(session, active_worker_ids)
+                        
+                        # Process pending tasks with fresh instances
+                        await self.process_tasks(session)
+                        
+                        # Check worker health and update batch status
+                        completed_current_batch = True
+                        for worker in active_workers:
+                            if not await self.is_worker_healthy(worker):
+                                await self.handle_worker_failure(worker, session)
+                            else:
+                                # Check current batch tasks with fresh instances
+                                current_batch_tasks = await self._get_current_batch_tasks(session, worker)
+                                if current_batch_tasks:
+                                    completed_current_batch = False
+                        
+                        # Move to next batch if current batch is complete
+                        if completed_current_batch:
+                            has_next_batch = False
+                            available_worker_ids = [w.id for w in self.available_workers]
+                            available_workers = await self._load_workers_by_ids(session, available_worker_ids)
                             
-                            # Process pending tasks with fresh instances
-                            await self.process_tasks(session)
+                            for worker in available_workers:
+                                next_batch_tasks = await self._get_next_batch_tasks(session, worker)
+                                if next_batch_tasks:
+                                    has_next_batch = True
+                                    self.current_batch += 1
+                                    logger.info(f"Moving to batch {self.current_batch}")
+                                    break
                             
-                            # Check worker health and update batch status
-                            completed_current_batch = True
-                            for worker in active_workers:
-                                if not await self.is_worker_healthy(worker):
-                                    await self.handle_worker_failure(worker, session)
-                                else:
-                                    # Check current batch tasks with fresh instances
-                                    current_batch_tasks = await self._get_current_batch_tasks(session, worker)
-                                    if current_batch_tasks:
-                                        completed_current_batch = False
-                            
-                            # Move to next batch if current batch is complete
-                            if completed_current_batch:
-                                has_next_batch = False
-                                available_worker_ids = [w.id for w in self.available_workers]
-                                available_workers = await self._load_workers_by_ids(session, available_worker_ids)
-                                
-                                for worker in available_workers:
-                                    next_batch_tasks = await self._get_next_batch_tasks(session, worker)
-                                    if next_batch_tasks:
-                                        has_next_batch = True
-                                        self.current_batch += 1
-                                        logger.info(f"Moving to batch {self.current_batch}")
-                                        break
-                                
-                                if not has_next_batch:
-                                    logger.info("All batches completed")
-                            
-                            # Rotate workers based on current batch
-                            await self.rotate_workers(session)
+                            if not has_next_batch:
+                                logger.info("All batches completed")
+                        
+                        # Rotate workers based on current batch
+                        await self.rotate_workers(session)
                     finally:
                         await session.close()
                 
