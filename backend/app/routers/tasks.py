@@ -438,20 +438,27 @@ async def update_task_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/queue/start")
-async def start_task_queue(request: Request):
+async def start_task_queue(request: Request, session: AsyncSession = Depends(get_db)):
     """Start the task queue processor"""
     try:
         # Get task manager from app state
         if not hasattr(request.app.state, 'task_manager'):
+            # Initialize task manager if not present
+            task_manager = await TaskManager.get_instance(db_manager.async_session)
+            request.app.state.task_manager = task_manager
+        else:
+            task_manager = request.app.state.task_manager
+
+        # Verify worker accounts before starting
+        active_workers = await verify_worker_accounts(request, session)
+        if not active_workers:
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Task manager not initialized"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No active worker accounts available. Please add worker accounts before starting the queue."
             )
             
-        task_manager = request.app.state.task_manager
-        
-        # Start queue
-        if await task_manager.start():
+        # Start queue with verified workers
+        if await task_manager.start(session=session):
             # Update app state
             request.app.state.task_queue_running = True
             
@@ -459,10 +466,13 @@ async def start_task_queue(request: Request):
             await request.app.state.connection_manager.broadcast({
                 "type": "queue_status",
                 "status": "running",
-                "message": "Task queue started successfully"
+                "message": f"Task queue started with {len(active_workers)} active workers"
             })
             
-            return {"message": "Task queue started"}
+            return {
+                "message": "Task queue started",
+                "active_workers": len(active_workers)
+            }
         return {"message": "Task queue already running"}
             
     except HTTPException:
