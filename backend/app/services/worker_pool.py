@@ -217,3 +217,5 @@ class WorkerPool:
             if len(self._active_workers) >= self.settings["max_workers"]:
                 break
             if worker not in self._active_workers:
+                if await self._is_worker_available(session, worker, "like_tweet"):  # Use generic endpoint for health check
+                    self.activate_worker(worker)
