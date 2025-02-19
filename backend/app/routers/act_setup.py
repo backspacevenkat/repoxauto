@@ -113,10 +113,15 @@ async def import_accounts(
         for _, row in df.iterrows():
             try:
                 # Convert row to dict and clean NaN values
-                account_data = {
-                    k: v for k, v in row.to_dict().items() 
-                    if pd.notna(v) and v != ''
-                }
+                row_dict = row.to_dict()
+                account_data = {}
+                for k, v in row_dict.items():
+                    if pd.notna(v) and v != '':
+                        # Convert proxy_port to string
+                        if k == 'proxy_port':
+                            account_data[k] = str(v)
+                        else:
+                            account_data[k] = v
                 
                 # Check if account exists
                 result = await db.execute(
