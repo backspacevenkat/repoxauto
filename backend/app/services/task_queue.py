@@ -25,38 +25,38 @@ class TaskQueue:
         self._lock = asyncio.Lock()
         self.settings = None  # Load settings when starting
 
-    def _load_settings(self):
-        """Load settings from settings.json"""
+    async def _load_settings(self, session: AsyncSession):
+        """Load settings from database"""
         try:
-            with open("settings.json", "r") as f:
-                return json.load(f)
-        except FileNotFoundError:
-            # Return default settings
+            from ..models.settings import SystemSettings
+            result = await session.execute(select(SystemSettings).limit(1))
+            settings = result.scalar_one_or_none()
+            
+            if not settings:
+                # Create default settings if none exist
+                settings = SystemSettings()
+                session.add(settings)
+                await session.commit()
+                await session.refresh(settings)
+            
+            return {
+                "maxWorkers": settings.max_concurrent_workers,
+                "requestsPerWorker": settings.max_requests_per_worker,
+                "requestInterval": settings.request_interval,
+                "taskBatchSize": 5,  # Default batch size
+                "retryAttempts": 3,  # Default retry attempts
+                "retryDelay": 5      # Default retry delay in seconds
+            }
+        except Exception as e:
+            logger.error(f"Error loading settings: {str(e)}")
+            # Return default settings if database access fails
             return {
                 "maxWorkers": 6,
                 "requestsPerWorker": 900,
-                "requestInterval": 15
-            }
-
-    async def start(self, max_workers: int = None, requests_per_worker: int = None, request_interval: int = None):
-        """Start the task queue processor with optional settings override"""
-        if self.running:
-            return
-            
-        # Stop any existing workers first
-        await self.stop()
-        
-        try:
-            # Create new session for startup
-            async with self.session_maker() as session:
-                async with session.begin():
-                    # Initialize rate limiter with session maker
-                    self.rate_limiter = RateLimiter(self.session_maker)
-                    
-                    # Reload settings in case they've changed
-                    self.settings = self._load_settings()
-                    
-                    # Override settings if provided
+                "requestInterval": 15,
+                "taskBatchSize": 5,
+                "retryAttempts": 3,
+                "retryDelay": 5
                     if max_workers is not None:
                         self.settings["maxWorkers"] = max_workers
                     if requests_per_worker is not None:
