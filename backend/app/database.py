@@ -73,23 +73,16 @@ class DatabaseManager:
             engine_args = {
                 "echo": False,
                 "future": True,
-                "pool_size": 20,
+                "pool_size": 5,
                 "max_overflow": 10,
                 "pool_timeout": 30,
-                "pool_pre_ping": True,
                 "connect_args": {
-                    "statement_cache_size": 0,
-                    "prepared_statement_cache_size": 0,
                     "command_timeout": 60,
                     "server_settings": {
                         "application_name": "xauto",
                         "timezone": "UTC"
                     }
-                },
-                "pool_timeout": 10,
-                "pool_recycle": 1800,
-                "pool_pre_ping": True,
-                "pool_use_lifo": True
+                }
             }
             
             self.engine = create_async_engine(url, **engine_args)
@@ -105,6 +98,13 @@ class DatabaseManager:
             # Create session factory with configured options
             session_factory = async_sessionmaker(
                 bind=self.engine.execution_options(
+                    populate_existing=True,
+                    raiseload=False
+                ),
+                class_=AsyncSession,
+                expire_on_commit=False,
+                future=True
+            )
                     populate_existing=True,
                     raiseload=False
                 ),
