@@ -109,25 +109,30 @@ async def import_accounts(
         failed = 0
         errors = []
         
-        # Process each row
-        for _, row in df.iterrows():
-            try:
-                # Convert row to dict and clean NaN values
-                row_dict = row.to_dict()
-                account_data = {}
-                for k, v in row_dict.items():
-                    if pd.notna(v) and v != '':
-                        # Convert proxy_port to string
-                        if k == 'proxy_port':
-                            account_data[k] = str(v)
-                        else:
-                            account_data[k] = v
+        # Process each row with autoflush disabled
+        with db.no_autoflush:
+            for _, row in df.iterrows():
+                try:
+                    # Convert row to dict and clean NaN values
+                    row_dict = row.to_dict()
+                    account_data = {}
+                    for k, v in row_dict.items():
+                        if pd.notna(v) and v != '':
+                            # Convert proxy_port to string
+                            if k == 'proxy_port':
+                                account_data[k] = str(int(v))  # Ensure integer conversion first
+                            else:
+                                account_data[k] = v
+                    
+                    # Log proxy_port type for debugging
+                    if 'proxy_port' in account_data:
+                        logger.info(f"proxy_port type: {type(account_data['proxy_port'])}, value: {account_data['proxy_port']}")
                 
-                # Check if account exists
-                result = await db.execute(
-                    select(Account).filter(Account.account_no == account_data.get('account_no'))
-                )
-                existing_account = result.scalar_one_or_none()
+                    # Check if account exists
+                    result = await db.execute(
+                        select(Account).filter(Account.account_no == account_data.get('account_no'))
+                    )
+                    existing_account = result.scalar_one_or_none()
 
                 if existing_account:
                     # Update existing account
