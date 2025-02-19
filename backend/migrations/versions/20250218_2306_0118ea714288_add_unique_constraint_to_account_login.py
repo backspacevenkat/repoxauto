@@ -19,8 +19,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    pass
+    # Create unique index for login column
+    op.create_unique_constraint('uq_accounts_login', 'accounts', ['login'])
+    # Create index for better query performance
+    op.create_index('ix_accounts_login', 'accounts', ['login'])
 
 
 def downgrade() -> None:
-    pass
+    # Drop unique constraint and index
+    op.drop_constraint('uq_accounts_login', 'accounts', type_='unique')
+    op.drop_index('ix_accounts_login', table_name='accounts')
