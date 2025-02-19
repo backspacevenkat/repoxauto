@@ -134,43 +134,43 @@ async def import_accounts(
                     )
                     existing_account = result.scalar_one_or_none()
 
-                if existing_account:
-                    # Update existing account
-                    for key, value in account_data.items():
-                        if hasattr(existing_account, key):
-                            setattr(existing_account, key, value)
-                    existing_account.updated_at = datetime.utcnow()
-                    
-                    # Set worker flag based on act_type
-                    if account_data.get('act_type') == 'worker':
-                        existing_account.is_worker = True
+                    if existing_account:
+                        # Update existing account
+                        for key, value in account_data.items():
+                            if hasattr(existing_account, key):
+                                setattr(existing_account, key, value)
+                        existing_account.updated_at = datetime.utcnow()
+                        
+                        # Set worker flag based on act_type
+                        if account_data.get('act_type') == 'worker':
+                            existing_account.is_worker = True
+                        else:
+                            existing_account.is_worker = False
+                        
+                        existing_account.is_active = True
+                        existing_account.oauth_setup_status = 'PENDING'
+                        
                     else:
-                        existing_account.is_worker = False
+                        # Create new account
+                        account_data['created_at'] = datetime.utcnow()
+                        account_data['updated_at'] = datetime.utcnow()
+                        
+                        # Set worker flag based on act_type from CSV
+                        account_data['is_worker'] = account_data.get('act_type') == 'worker'
+                        account_data['is_active'] = True
+                        account_data['oauth_setup_status'] = 'PENDING'
+                        
+                        # Create new Account instance
+                        db_account = Account(**account_data)
+                        db.add(db_account)
                     
-                    existing_account.is_active = True
-                    existing_account.oauth_setup_status = 'PENDING'
+                    successful += 1
                     
-                else:
-                    # Create new account
-                    account_data['created_at'] = datetime.utcnow()
-                    account_data['updated_at'] = datetime.utcnow()
-                    
-                    # Set worker flag based on act_type from CSV
-                    account_data['is_worker'] = account_data.get('act_type') == 'worker'
-                    account_data['is_active'] = True
-                    account_data['oauth_setup_status'] = 'PENDING'
-                    
-                    # Create new Account instance
-                    db_account = Account(**account_data)
-                    db.add(db_account)
-                
-                successful += 1
-                
-            except Exception as e:
-                failed += 1
-                errors.append(f"Error processing account {account_data.get('account_no', 'unknown')}: {str(e)}")
-                logger.error(f"Import error: {str(e)}")
-                continue
+                except Exception as e:
+                    failed += 1
+                    errors.append(f"Error processing account {account_data.get('account_no', 'unknown')}: {str(e)}")
+                    logger.error(f"Import error: {str(e)}")
+                    continue
         
         try:
             # Commit changes
