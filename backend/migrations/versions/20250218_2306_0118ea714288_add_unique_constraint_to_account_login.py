@@ -18,14 +18,35 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+from sqlalchemy import inspect
+
 def upgrade() -> None:
-    # Create unique index for login column
-    op.create_unique_constraint('uq_accounts_login', 'accounts', ['login'])
-    # Create index for better query performance
-    op.create_index('ix_accounts_login', 'accounts', ['login'])
+    # Get inspector to check existing constraints
+    conn = op.get_bind()
+    insp = inspect(conn)
+    
+    # Check if unique constraint exists
+    existing_constraints = insp.get_unique_constraints('accounts')
+    if not any(c['name'] == 'uq_accounts_login' for c in existing_constraints):
+        # Create unique constraint if it doesn't exist
+        op.create_unique_constraint('uq_accounts_login', 'accounts', ['login'])
+
+    # Check if index exists
+    existing_indexes = insp.get_indexes('accounts')
+    if not any(i['name'] == 'ix_accounts_login' for i in existing_indexes):
+        # Create index if it doesn't exist
+        op.create_index('ix_accounts_login', 'accounts', ['login'])
 
 
 def downgrade() -> None:
-    # Drop unique constraint and index
-    op.drop_constraint('uq_accounts_login', 'accounts', type_='unique')
-    op.drop_index('ix_accounts_login', table_name='accounts')
+    try:
+        # Try to drop unique constraint
+        op.drop_constraint('uq_accounts_login', 'accounts', type_='unique')
+    except:
+        pass  # Ignore if constraint doesn't exist
+        
+    try:
+        # Try to drop index
+        op.drop_index('ix_accounts_login', table_name='accounts')
+    except:
+        pass  # Ignore if index doesn't exist
