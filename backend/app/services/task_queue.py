@@ -429,11 +429,11 @@ class TaskQueue:
             can_use, _, _ = await self._check_account_rate_limits(session, account, endpoint)
             if can_use:
                 available_accounts.append(account)
-            if len(available_accounts) >= count:
-                break
+                account.last_task_time = datetime.utcnow()
+                session.add(account)
+                if len(available_accounts) >= count:
+                    break
 
-        # Update last task time for selected accounts
-        for account in available_accounts:
             account.last_task_time = datetime.utcnow()
 
         return available_accounts
