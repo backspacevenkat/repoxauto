@@ -87,7 +87,9 @@ class DatabaseManager:
                     }
                 },
                 "pool_timeout": 10,
-                "pool_recycle": 1800
+                "pool_recycle": 1800,
+                "pool_pre_ping": True,
+                "pool_use_lifo": True
             }
             
             self.engine = create_async_engine(url, **engine_args)
@@ -132,8 +134,6 @@ class DatabaseManager:
                     return True
             
             raise Exception("Failed to connect to PostgreSQL database")
-            
-        except Exception as e:
             logger.error(f"Database initialization failed: {str(e)}")
             self.is_connected = False
             return False
