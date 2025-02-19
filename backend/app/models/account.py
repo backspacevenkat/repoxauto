@@ -45,7 +45,7 @@ class Account(Base):
     id = Column(Integer, primary_key=True, index=True)
     account_no = Column(String, unique=True, index=True, nullable=False, server_default='')
     act_type = Column(String, nullable=False, server_default='normal')  # 'normal' or 'worker'
-    login = Column(String, nullable=False, server_default='')
+    login = Column(String, nullable=False, server_default='', unique=True, index=True)
     password = Column(String, nullable=True)
     old_password = Column(String, nullable=True)  # Store previous password for fallback
     email = Column(String)
