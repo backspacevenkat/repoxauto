@@ -51,6 +51,9 @@ screenshots/
 .env.*
 
 # Node
+save_creds_csv.py
+auto_commit.sh
+requirements.txt
 node_modules/
 npm-debug.log*
 yarn-debug.log*
