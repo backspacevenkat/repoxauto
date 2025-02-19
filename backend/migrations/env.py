@@ -55,7 +55,7 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
     """
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        {"sqlalchemy.url": "postgresql://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb?sslmode=require"},
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
