@@ -105,5 +105,4 @@ vine==5.1.0
 watchfiles==1.0.3
 wcwidth==0.2.13
 websockets==12.0
--e git+https://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@github.com/backspacevenkat/repoxauto.git@4907cb5f2d4b311c7ce182a41b6218b13dfb6701#egg=xauto
 yarl==1.18.3

@@ -43,14 +43,8 @@ OUTPUT_FOLDER = 'output'
 # Ensure the output directory exists
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# Fetch OpenAI API key from environment variables for security
-#OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_API_KEY = "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"
 openai.api_key = "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"
-if not OPENAI_API_KEY:
-    logger.error("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
     sys.exit(1)
-openai.api_key = OPENAI_API_KEY
 
 # Result columns to update in CSV
 RESULT_COLUMNS = [
