@@ -289,6 +289,7 @@ class DatabaseManager:
                                 continue
                         
                         try:
+                            await session.commit()
                             logger.info(f"Restored table: {table.name}")
                         except Exception as e:
                             logger.error(f"Error committing table {table.name}: {e}")
