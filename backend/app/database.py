@@ -271,12 +271,6 @@ class DatabaseManager:
                     try:
                         backup_file = f"{backup_path}/{table.name}.json"
                         if not os.path.exists(backup_file):
-            async with self.async_session() as session:
-                # Restore each table
-                for table in Base.metadata.sorted_tables:
-                    try:
-                        backup_file = f"{backup_path}/{table.name}.json"
-                        if not os.path.exists(backup_file):
                             continue
 
                         async with aiofiles.open(backup_file, 'r') as f:
