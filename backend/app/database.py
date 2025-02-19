@@ -125,7 +125,6 @@ class DatabaseManager:
         try:
             # Using PostgreSQL exclusively
             if await self.test_connection(DATABASE_URL):
-            if await self.test_connection(DATABASE_URL):
                 success = self.configure_engine(DATABASE_URL)
                 if success:
                     self.is_connected = True
