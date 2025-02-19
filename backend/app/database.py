@@ -83,10 +83,9 @@ class DatabaseManager:
                     "command_timeout": 60,
                     "server_settings": {
                         "application_name": "xauto",
-                        "timezone": "UTC"
-                    },
-                    "ssl": True,
-                    "ssl_context": None
+                        "timezone": "UTC",
+                        "sslmode": "require"
+                    }
                 }
             }
             
@@ -114,6 +113,7 @@ class DatabaseManager:
             # Create session factory function
             self.async_session = lambda: session_factory()
             
+            self.is_connected = True
             self.is_connected = True
             logger.info(f"Successfully configured {self.db_type} database engine")
             return True
