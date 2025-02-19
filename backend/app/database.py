@@ -85,7 +85,7 @@ class DatabaseManager:
                         "application_name": "xauto",
                         "timezone": "UTC"
                     },
-                    }
+                    "ssl": "require"
                 }
             }
             
