@@ -114,7 +114,6 @@ class DatabaseManager:
             self.async_session = lambda: session_factory()
             
             self.is_connected = True
-            self.is_connected = True
             logger.info(f"Successfully configured {self.db_type} database engine")
             return True
         except Exception as e:
@@ -125,6 +124,7 @@ class DatabaseManager:
         """Initialize database connection"""
         try:
             # Using PostgreSQL exclusively
+            if await self.test_connection(DATABASE_URL):
             if await self.test_connection(DATABASE_URL):
                 success = self.configure_engine(DATABASE_URL)
                 if success:
