@@ -704,8 +704,7 @@ class TaskManager:
                         return await self._start_internal(session)
             else:
                 # Use provided session
-                async with session.begin():
-                    return await self._start_internal(session)
+                return await self._start_internal(session)
             
         except Exception as e:
             logger.error(f"Failed to start task queue: {e}")
