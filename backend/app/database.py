@@ -43,8 +43,6 @@ logger.info(f"Database path: {DB_PATH}")
 class DatabaseManager:
     """Manages database connections and operations"""
     def __init__(self):
-        self.SQLITE_URL = SQLITE_URL
-        self.POSTGRES_URL = POSTGRES_URL
         self.BACKUP_DIR = "backups/database"
         os.makedirs(self.BACKUP_DIR, exist_ok=True)
 
