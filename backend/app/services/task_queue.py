@@ -286,7 +286,7 @@ class TaskQueue:
         """Check if account has hit rate limits"""
         # Ensure settings are loaded
         if self.settings is None:
-            self.settings = self._load_settings()
+            self.settings = await self._load_settings(session)
             
         try:
             # For action accounts, use lower rate limits
