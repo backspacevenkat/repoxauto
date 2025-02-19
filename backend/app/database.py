@@ -279,13 +279,28 @@ class DatabaseManager:
                                         break
                                 
                                 if model_class:
+                                    # Check if record already exists
+                                    primary_keys = [key.name for key in table.primary_key]
+                                    filters = {key: row_data[key] for key in primary_keys if key in row_data}
+                                    
+                                    if filters:
+                                        existing = await session.execute(
+                                            select(model_class).filter_by(**filters)
+                                        )
+                                        if existing.scalar_one_or_none():
+                                            continue  # Skip if record exists
+                                    
                                     # Create model instance and add to session
                                     instance = model_class(**row_data)
                                     session.add(instance)
                                 else:
                                     # Fallback to raw table insert if no model found
                                     stmt = table.insert().values(**row_data)
-                                    await session.execute(stmt)
+                                    try:
+                                        await session.execute(stmt)
+                                    except sqlalchemy.exc.IntegrityError:
+                                        await session.rollback()  # Rollback on duplicate
+                                        continue
 
                             except Exception as e:
                                 logger.warning(f"Error restoring row in table {table.name}: {e}")
