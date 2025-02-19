@@ -39,7 +39,6 @@ DATABASE_URL = "postgresql+asyncpg://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-dar
 SYNC_DATABASE_URL = "postgresql://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb?sslmode=require"
 
 logger.info(f"Database path: {DB_PATH}")
-logger.info(f"SQLite URL: {SQLITE_URL}")
 
 class DatabaseManager:
     """Manages database connections and operations"""
@@ -88,6 +87,7 @@ class DatabaseManager:
             else:
                 engine_args.update({
                     "pool_size": 20,
+                    "max_overflow": 10,
                     "max_overflow": 10,
                     "pool_timeout": 30,
                     "pool_pre_ping": True
