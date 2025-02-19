@@ -559,99 +559,99 @@ class TaskQueue:
                     account_id=account.id,
                     action_type=endpoint,
                     window='15min',
-                if input_params.get("save_to_db", False):
-                    for tweet in result.get('tweets', []):
-                        db_tweet = TopicTweet(
-                            keyword=keyword,
-                            tweet_id=tweet.get('id'),
-                            tweet_data=tweet,
-                            timestamp=datetime.fromisoformat(result['timestamp']),
-                            account_id=account.id
-                        )
-                        session.add(db_tweet)
-                    # Update task result
-                    task.result = result
-                
-                return result
-
-            elif task.type == "search_users":
-                # Get search parameters
-                keyword = input_params.get("keyword")
-                count = input_params.get("count", 20)
-                cursor = input_params.get("cursor")
-                
-                if not keyword:
-                    raise ValueError("Keyword is required for user search")
-                
-                # Search users
-                result = await client.search_users(
-                    keyword=keyword,
-                    count=count,
-                    cursor=cursor
+                    limit=self.settings["requestsPerWorker"]
                 )
                 
-                # Save users to database if requested
-                if input_params.get("save_to_db", False):
-                    for user in result.get('users', []):
-                        db_user = SearchedUser(
-                            keyword=keyword,
-                            user_id=user.get('id'),
-                            user_data=user,
-                            timestamp=datetime.fromisoformat(result['timestamp']),
-                            account_id=account.id
-                        )
-                        session.add(db_user)
-                    # Update task result
-                    task.result = result
-                
-                return result
+                can_use_24h = await self.rate_limiter.check_rate_limit(
+                    account_id=account.id,
+                    action_type=endpoint,
+                    window='24h',
+                    limit=int(self.settings["requestsPerWorker"] * (24 * 60 / self.settings["requestInterval"]))
+                )
+            
+            if not can_use_15min:
+                return False, "15-minute rate limit exceeded", None
+            if not can_use_24h:
+                return False, "24-hour rate limit exceeded", None
+            return True, None, None
+            
+        except Exception as e:
+            logger.error(f"Error checking rate limits: {str(e)}")
+            return False, str(e), None
 
-            elif task.type == "scrape_profile":
-                # Handle profile scraping logic and save complete profile data to MongoDB
-                username = input_params.get("username")
-                if not username:
-                    raise ValueError("Username is required for scrape_profile task")
-    
-                # Get user profile using UserByScreenName endpoint
-                variables = {
-                    "screen_name": username,
-                    "withSafetyModeUserFields": True
-                }
-                response = await client.graphql_request('UserByScreenName', variables)
-    
-                # Extract user data from GraphQL response
-                user_data = response.get('data', {}).get('user', {}).get('result', {})
-                if not user_data:
-                    raise ValueError(f"User {username} not found")
-    
-                legacy = user_data.get('legacy', {})
-    
-                # Import MongoDB client and get the scraped profiles collection
-                from ..mongodb_client import get_scraped_profiles_collection
-                collection = get_scraped_profiles_collection()
-    
-                profile_doc = {
-                    "username": username,
-                    "screen_name": legacy.get('screen_name'),
-                    "name": legacy.get('name'),
-                    "description": legacy.get('description'),
-                    "location": legacy.get('location'),
-                    "url": legacy.get('url'),
-                    "profile_image_url": legacy.get('profile_image_url_https'),
-                    "profile_banner_url": legacy.get('profile_banner_url'),
-                    "followers_count": legacy.get('followers_count'),
-                    "following_count": legacy.get('friends_count'),
-                    "tweets_count": legacy.get('statuses_count'),
-                    "likes_count": legacy.get('favourites_count'),
-                    "media_count": legacy.get('media_count'),
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat()
-                }
-    
-                # Insert the document into MongoDB
-                await collection.insert_one(profile_doc)
-    
-                return {
+    async def _get_endpoint_for_task(self, task_type: str, session: AsyncSession) -> str:
+        """Map task type to rate limit endpoint"""
+        # Ensure settings are loaded
+        if self.settings is None:
+            self.settings = await self._load_settings(session)
+            
+        endpoints = {
+            # Action tasks with their own rate limits
+            "like_tweet": "like_tweet",
+            "retweet_tweet": "retweet_tweet",
+            "reply_tweet": "reply_tweet",
+            "quote_tweet": "quote_tweet",
+            "create_tweet": "create_tweet",
+            "follow_user": "follow_user",  # Follow actions use their own rate limit
+            "send_dm": "send_dm",  # DM actions use their own rate limit
+            "update_profile": "update_profile",  # Profile updates use their own rate limit
+            
+            # Non-tweet tasks use like_tweet for rate limiting
+            "scrape_profile": "like_tweet",
+            "scrape_tweets": "like_tweet",
+            "search_trending": "like_tweet",
+            "search_tweets": "like_tweet",
+            "search_users": "like_tweet",
+            "user_profile": "like_tweet",
+            "user_tweets": "like_tweet"
+        }
+        if task_type not in endpoints:
+            raise ValueError(f"Invalid task type: {task_type}")
+        return endpoints[task_type]
+
+    async def _process_task(
+        self,
+        session: AsyncSession,
+        task: Task,
+        account: Account
+    ) -> dict:
+        """Process a single task"""
+        client = None
+        try:
+            proxy_config = account.get_proxy_config()
+
+            # Check if worker has required credentials
+            required_fields = {
+                "auth_token": account.auth_token,
+                "ct0": account.ct0
+            }
+            
+            missing_fields = [field for field, value in required_fields.items() if not value]
+            if missing_fields:
+                logger.warning(f"Worker {account.account_no} missing required fields: {missing_fields}")
+                task.status = "pending"  # Reset to pending so it can be picked up by another worker
+                session.add(task)
+                return None
+
+            client = TwitterClient(
+                account_no=account.account_no,
+                auth_token=account.auth_token,
+                ct0=account.ct0,
+                consumer_key=account.consumer_key,
+                consumer_secret=account.consumer_secret,
+                bearer_token=account.bearer_token,
+                access_token=account.access_token,
+                access_token_secret=account.access_token_secret,
+                client_id=account.client_id,
+                proxy_config=proxy_config,
+                user_agent=account.user_agent
+            )
+
+            endpoint = await self._get_endpoint_for_task(task.type, session)
+            
+            # Record action attempt for rate limiting
+            input_params = task.input_params
+            if isinstance(input_params, str):
                     "username": username,
                     "profile_data": {
                         "id": user_data.get('rest_id'),
