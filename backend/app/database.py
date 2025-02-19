@@ -100,6 +100,13 @@ class DatabaseManager:
                 })
             
             self.engine = create_async_engine(url, **engine_args)
+            if is_sqlite:
+                from sqlalchemy import event
+                @event.listens_for(self.engine.sync_engine, "connect")
+                def set_sqlite_pragma(dbapi_connection, connection_record):
+                    cursor = dbapi_connection.cursor()
+                    cursor.execute("PRAGMA journal_mode=WAL")
+                    cursor.close()
             self.db_type = "sqlite" if is_sqlite else "postgresql"
             
             # Create session factory with configured options
