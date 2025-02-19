@@ -264,12 +264,6 @@ class DatabaseManager:
                         if not os.path.exists(backup_file):
                             continue
 
-                for table in Base.metadata.sorted_tables:
-                    try:
-                        backup_file = f"{backup_path}/{table.name}.json"
-                        if not os.path.exists(backup_file):
-                            continue
-
                         async with aiofiles.open(backup_file, 'r') as f:
                             content = await f.read()
                             rows = json.loads(content)
