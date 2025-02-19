@@ -537,11 +537,8 @@ class TaskQueue:
                             account_id=account.id
                         )
                         session.add(db_trend)
-                    await session.commit()
-                    
                     # Update task result
                     task.result = result
-                    await session.commit()
                 
                 return result
 
@@ -572,11 +569,8 @@ class TaskQueue:
                             account_id=account.id
                         )
                         session.add(db_tweet)
-                    await session.commit()
-                    
                     # Update task result
                     task.result = result
-                    await session.commit()
                 
                 return result
 
@@ -607,11 +601,8 @@ class TaskQueue:
                             account_id=account.id
                         )
                         session.add(db_user)
-                    await session.commit()
-                    
                     # Update task result
                     task.result = result
-                    await session.commit()
                 
                 return result
 
@@ -887,8 +878,6 @@ class TaskQueue:
                                 await self.rate_limiter.update_rate_limit_info(account.id, endpoint, rate_limit_info)
                         
                         profile_update.completed_at = datetime.utcnow()
-                        await session.commit()
-                        
                         # Log final state
                         logger.info(f"Updated profile update record {profile_update_id} status to {profile_update.status}")
 
