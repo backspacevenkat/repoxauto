@@ -34,7 +34,7 @@ class TaskManager:
         self.worker_completed: Dict[Account, float] = {}  # Changed to float for timestamp
         self.current_batch: int = 1  # Track current batch number
         self.task_batch: Dict[Task, int] = {}  # Map tasks to their batch numbers
-        self.worker_queue: List[Account] = []  # Queue of workers for rotation
+        self.worker_queue: List[Account] = []  # Queue of workers for rotatio
         self._monitor_task = None
         self.queue_status = QueueStatus.STOPPED
         self.task_queue = TaskQueue(db_factory)  # Initialize TaskQueue with factory
