@@ -83,8 +83,8 @@ class DatabaseManager:
                     "command_timeout": 60,
                     "server_settings": {
                         "application_name": "xauto",
-                        "timezone": "UTC",
-                        "sslmode": "require"
+                        "timezone": "UTC"
+                    },
                     }
                 }
             }
