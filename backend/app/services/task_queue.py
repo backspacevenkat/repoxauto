@@ -112,7 +112,7 @@ class TaskQueue:
         return task_groups
 
     async def _process_task_group(self, session, task_type: str, task_list: List[Task]):
-        """Process a group of tasks of the same type"""
+        """Process a group of tasks of the same type with reduced flushes to improve throughput"""
         endpoint = self._get_endpoint_for_task(task_type)
         
         # Get available worker accounts for this task type
@@ -121,20 +121,16 @@ class TaskQueue:
             logger.info(f"No available worker accounts for {task_type} tasks")
             return
 
-        # Create processing coroutines
         processing_tasks = []
         tasks_to_reassign = []
         
-        for task, account in zip(task_list, available_accounts):
-            # Mark task as running
-            task.status = "running"
-            task.worker_account_id = account.id
-            task.started_at = datetime.utcnow()
-            
-            # Create processing coroutine
-            processing_tasks.append(
-                self._process_task(session, task, account)
-            )
+        # Wrap the task status updates within no_autoflush to delay flushes.
+        async with session.no_autoflush:
+            for task, account in zip(task_list, available_accounts):
+                task.status = "running"
+                task.worker_account_id = account.id
+                task.started_at = datetime.utcnow()
+                processing_tasks.append(self._process_task(session, task, account))
 
         # Process tasks concurrently
         if processing_tasks:
