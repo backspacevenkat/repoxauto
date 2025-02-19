@@ -57,6 +57,27 @@ class TaskQueue:
                 "taskBatchSize": 5,
                 "retryAttempts": 3,
                 "retryDelay": 5
+            }
+
+    async def start(self, max_workers: int = None, requests_per_worker: int = None, request_interval: int = None):
+        """Start the task queue processor with optional settings override"""
+        if self.running:
+            return
+            
+        # Stop any existing workers first
+        await self.stop()
+        
+        try:
+            # Create new session for startup
+            async with self.session_maker() as session:
+                async with session.begin():
+                    # Initialize rate limiter with session maker
+                    self.rate_limiter = RateLimiter(self.session_maker)
+                    
+                    # Load settings from database
+                    self.settings = await self._load_settings(session)
+                    
+                    # Override settings if provided
                     if max_workers is not None:
                         self.settings["maxWorkers"] = max_workers
                     if requests_per_worker is not None:
