@@ -86,7 +86,8 @@ class DatabaseManager:
                         "timezone": "UTC"
                     }
                 },
-                "connect_timeout": 10
+                "pool_timeout": 10,
+                "pool_recycle": 1800
             }
             
             self.engine = create_async_engine(url, **engine_args)
