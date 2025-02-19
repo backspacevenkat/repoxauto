@@ -207,6 +207,8 @@ class DatabaseManager:
                                         elif isinstance(value, (int, float, str, bool, type(None))):
                                             value = value
                                         else:
+                                            try:
+                                                value = str(value)
                                             except:
                                                 value = None
                                         
