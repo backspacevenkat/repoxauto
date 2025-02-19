@@ -36,7 +36,7 @@ def run_migrations_offline() -> None:
     Calls to context.execute() here emit the given string to the
     script output.
     """
-    url = "postgresql://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb?sslmode=require"
+    url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -55,7 +55,7 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
     """
     connectable = engine_from_config(
-        {"sqlalchemy.url": "postgresql://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb?sslmode=require"},
+        config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

@@ -124,14 +124,17 @@ class DatabaseManager:
     async def initialize(self):
         """Initialize database connection"""
         try:
-            # Using PostgreSQL exclusively
-            if await self.test_connection(DATABASE_URL):
-                success = self.configure_engine(DATABASE_URL)
-                if success:
-                    self.is_connected = True
-                    return True
-            
-            raise Exception("Failed to connect to PostgreSQL database")
+            # Try PostgreSQL first if URL is provided
+            if os.getenv("DATABASE_URL"):
+                if await self.test_connection(POSTGRES_URL):
+                    success = self.configure_engine(POSTGRES_URL)
+                    if success:
+                        self.is_connected = True
+                        return True
+                
+            # No fallback to SQLite; using PostgreSQL exclusively.
+                
+            raise Exception("Failed to connect to any database")
             
         except Exception as e:
             logger.error(f"Database initialization failed: {str(e)}")
@@ -437,8 +440,12 @@ async def monitor_db_health():
     while True:
         try:
             # Health check
-            if not await db_manager.test_connection(DATABASE_URL):
-                logger.debug("PostgreSQL connection lost, attempting to reconnect...")
+            if not await db_manager.test_connection(POSTGRES_URL):
+                # Check if it's just PostgreSQL not being available
+                if db_manager.db_type == "postgresql":
+                    logger.debug("PostgreSQL connection lost, attempting to reconnect or fallback...")
+                else:
+                    logger.warning("Database connection lost, attempting to reconnect...")
                 await db_manager.initialize()
 
             # Create backup every 6 hours
