@@ -262,13 +262,17 @@ class DatabaseManager:
                             rows = json.loads(content)
 
                         for row_data in rows:
-                            # Convert ISO format strings back to datetime
+                            # Convert values to appropriate types
                             for key, value in row_data.items():
+                                # Convert datetime strings
                                 if isinstance(value, str) and 'T' in value:
                                     try:
                                         row_data[key] = datetime.fromisoformat(value)
                                     except ValueError:
                                         pass
+                                # Convert proxy_port to string
+                                elif key == 'proxy_port' and value is not None:
+                                    row_data[key] = str(value)
 
                             try:
                                 # Get the actual model class, not just the table
