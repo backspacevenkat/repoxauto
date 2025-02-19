@@ -84,7 +84,8 @@ class DatabaseManager:
                     "server_settings": {
                         "application_name": "xauto",
                         "timezone": "UTC"
-                    }
+                    },
+                    "ssl": True
                 }
             }
             
