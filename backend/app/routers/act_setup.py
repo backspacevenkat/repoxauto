@@ -118,9 +118,10 @@ async def import_accounts(
                     account_data = {}
                     for k, v in row_dict.items():
                         if pd.notna(v) and v != '':
-                            # Convert proxy_port to string
+                            # Handle proxy_port specially
                             if k == 'proxy_port':
-                                account_data[k] = str(int(v))  # Ensure integer conversion first
+                                # Convert to string, handling both int and float inputs
+                                account_data[k] = str(int(float(v)))
                             else:
                                 account_data[k] = v
                     
