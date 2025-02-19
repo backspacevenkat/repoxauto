@@ -586,7 +586,7 @@ class TaskQueue:
                 return result
 
             elif task.type == "scrape_profile":
-                # Handle profile scraping logic and save complete profile data
+                # Handle profile scraping logic and save complete profile data to MongoDB
                 username = input_params.get("username")
                 if not username:
                     raise ValueError("Username is required for scrape_profile task")
@@ -605,27 +605,30 @@ class TaskQueue:
     
                 legacy = user_data.get('legacy', {})
     
-                # Import the new ScrapedProfile model
-                from ..models.scraped_profile import ScrapedProfile
+                # Import MongoDB client and get the scraped profiles collection
+                from ..mongodb_client import get_scraped_profiles_collection
+                collection = get_scraped_profiles_collection()
     
-                # Create a new ScrapedProfile instance
-                scraped_profile = ScrapedProfile(
-                    username=username,
-                    screen_name=legacy.get('screen_name'),
-                    name=legacy.get('name'),
-                    description=legacy.get('description'),
-                    location=legacy.get('location'),
-                    url=legacy.get('url'),
-                    profile_image_url=legacy.get('profile_image_url_https'),
-                    profile_banner_url=legacy.get('profile_banner_url'),
-                    followers_count=legacy.get('followers_count'),
-                    following_count=legacy.get('friends_count'),
-                    tweets_count=legacy.get('statuses_count'),
-                    likes_count=legacy.get('favourites_count'),
-                    media_count=legacy.get('media_count')
-                )
-                session.add(scraped_profile)
-                await session.commit()
+                profile_doc = {
+                    "username": username,
+                    "screen_name": legacy.get('screen_name'),
+                    "name": legacy.get('name'),
+                    "description": legacy.get('description'),
+                    "location": legacy.get('location'),
+                    "url": legacy.get('url'),
+                    "profile_image_url": legacy.get('profile_image_url_https'),
+                    "profile_banner_url": legacy.get('profile_banner_url'),
+                    "followers_count": legacy.get('followers_count'),
+                    "following_count": legacy.get('friends_count'),
+                    "tweets_count": legacy.get('statuses_count'),
+                    "likes_count": legacy.get('favourites_count'),
+                    "media_count": legacy.get('media_count'),
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+    
+                # Insert the document into MongoDB
+                await collection.insert_one(profile_doc)
     
                 return {
                     "username": username,
@@ -650,7 +653,8 @@ class TaskQueue:
                         "created_at": legacy.get('created_at'),
                         "professional": user_data.get('professional', {}),
                         "verified_type": user_data.get('verified_type')
-                    }
+                    },
+                    "mongo_saved": True
                 }
                 
             elif task.type in ["like_tweet", "retweet_tweet", "reply_tweet", "quote_tweet", "create_tweet", "follow_user", "send_dm"]:
