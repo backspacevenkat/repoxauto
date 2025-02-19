@@ -32,17 +32,11 @@ DB_PATH = os.path.join(BACKEND_DIR, "app.db")
 DB_DIR = os.path.dirname(DB_PATH)
 os.makedirs(DB_DIR, exist_ok=True)
 
-# Database URLs
-POSTGRES_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb?sslmode=require")
-SQLITE_URL = os.getenv("SQLITE_URL", f"sqlite+aiosqlite:///{DB_PATH}")
+# Database URLs - migrating fully to PostgreSQL for now
+DATABASE_URL = "postgresql+asyncpg://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb?sslmode=require"
 
-# Sync URLs for migrations
-SYNC_SQLITE_URL = "sqlite:///backend/app.db"
-SYNC_POSTGRES_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost/xauto")
-
-# Use PostgreSQL if available, fallback to SQLite
-DATABASE_URL = POSTGRES_URL if os.getenv("DATABASE_URL") else SQLITE_URL
-SYNC_DATABASE_URL = SYNC_POSTGRES_URL if os.getenv("DATABASE_URL") else SYNC_SQLITE_URL
+# Sync URLs for migrations - using same PostgreSQL instance
+SYNC_DATABASE_URL = "postgresql://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb?sslmode=require"
 
 logger.info(f"Database path: {DB_PATH}")
 logger.info(f"SQLite URL: {SQLITE_URL}")
@@ -271,6 +265,12 @@ class DatabaseManager:
 
             logger.info(f"Restoring from backup: {backup_path}")
 
+            async with self.async_session() as session:
+                # Restore each table
+                for table in Base.metadata.sorted_tables:
+                    try:
+                        backup_file = f"{backup_path}/{table.name}.json"
+                        if not os.path.exists(backup_file):
             async with self.async_session() as session:
                 # Restore each table
                 for table in Base.metadata.sorted_tables:
