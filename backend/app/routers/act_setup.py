@@ -109,8 +109,8 @@ async def import_accounts(
         failed = 0
         errors = []
         
-        # Process each row with autoflush disabled
-        async with db.no_autoflush:
+        # Process each row
+        db.autoflush = False  # Disable autoflush for the entire session
             for _, row in df.iterrows():
                 try:
                     # Convert row to dict and clean NaN values
