@@ -105,13 +105,6 @@ class DatabaseManager:
                 expire_on_commit=False,
                 future=True
             )
-                    populate_existing=True,
-                    raiseload=False
-                ),
-                class_=AsyncSession,
-                expire_on_commit=False,
-                future=True
-            )
             
             # Create session factory function
             self.async_session = lambda: session_factory()
