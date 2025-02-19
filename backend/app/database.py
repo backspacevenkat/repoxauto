@@ -33,10 +33,10 @@ DB_DIR = os.path.dirname(DB_PATH)
 os.makedirs(DB_DIR, exist_ok=True)
 
 # Database URLs - migrating fully to PostgreSQL for now
-DATABASE_URL = "postgresql+asyncpg://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb?ssl=true"
+DATABASE_URL = "postgresql+asyncpg://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb"
 
 # Sync URLs for migrations - using same PostgreSQL instance
-SYNC_DATABASE_URL = "postgresql://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb?ssl=true"
+SYNC_DATABASE_URL = "postgresql://neondb_owner:npg_4GK5QbBnqzdk@ep-lively-darkness-a6zoh3mw-pooler.us-west-2.aws.neon.tech/neondb"
 
 logger.info(f"Database path: {DB_PATH}")
 
