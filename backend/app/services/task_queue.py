@@ -217,8 +217,8 @@ class TaskQueue:
             try:
                 # Create a fresh session
                 session = self.session_maker()
-                # Use session as context manager for proper cleanup
-                async with session:
+                # Use single transaction context
+                async with session.begin():
                     # Get pending tasks
                     stmt = select(Task).where(
                         and_(
