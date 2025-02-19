@@ -109,8 +109,10 @@ async def import_accounts(
         failed = 0
         errors = []
         
-        # Process each row with autoflush disabled
-        async with db.no_autoflush:
+        # Process each row
+        session = db
+        session.autoflush = False  # Disable autoflush for this session
+        try:
             for _, row in df.iterrows():
                 try:
                     # Convert row to dict and clean NaN values
@@ -173,14 +175,16 @@ async def import_accounts(
                     logger.error(f"Import error: {str(e)}")
                     continue
         
-        try:
-            # Commit changes
-            await db.commit()
-            logger.info(f"Successfully imported {successful} accounts, {failed} failed")
-        except Exception as e:
-            await db.rollback()
-            logger.error(f"Error committing changes: {str(e)}")
-            raise
+            try:
+                # Commit changes
+                await session.commit()
+                logger.info(f"Successfully imported {successful} accounts, {failed} failed")
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error committing changes: {str(e)}")
+                raise
+        finally:
+            session.autoflush = True  # Re-enable autoflush
         
         return {
             "total_imported": successful + failed,
