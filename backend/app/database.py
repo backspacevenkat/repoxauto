@@ -88,7 +88,6 @@ class DatabaseManager:
                 engine_args.update({
                     "pool_size": 20,
                     "max_overflow": 10,
-                    "max_overflow": 10,
                     "pool_timeout": 30,
                     "pool_pre_ping": True
                 })
@@ -98,6 +97,7 @@ class DatabaseManager:
                 from sqlalchemy import event
                 @event.listens_for(self.engine.sync_engine, "connect")
                 def set_sqlite_pragma(dbapi_connection, connection_record):
+                    cursor = dbapi_connection.cursor()
                     cursor = dbapi_connection.cursor()
                     cursor.execute("PRAGMA journal_mode=WAL")
                     cursor.close()
