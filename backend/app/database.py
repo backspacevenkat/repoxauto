@@ -72,23 +72,15 @@ class DatabaseManager:
         try:
             engine_args = {
                 "echo": False,
-                "future": True
+                "future": True,
+                "pool_size": 20,
+                "max_overflow": 10,
+                "pool_timeout": 30,
+                "pool_pre_ping": True,
+                "connect_args": {
+                    "ssl": True
+                }
             }
-            
-            if is_sqlite:
-                # Ensure SQLite connection parameters
-                engine_args.update({
-                    "connect_args": {
-                        "check_same_thread": False
-                    }
-                })
-            else:
-                engine_args.update({
-                    "pool_size": 20,
-                    "max_overflow": 10,
-                    "pool_timeout": 30,
-                    "pool_pre_ping": True
-                })
             
             self.engine = create_async_engine(url, **engine_args)
             if is_sqlite:
