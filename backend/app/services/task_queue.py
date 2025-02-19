@@ -712,7 +712,7 @@ class TaskQueue:
                 return result
 
             elif task.type == "scrape_tweets":
-                # Handle existing tweet scraping logic
+                # Handle tweet scraping logic and store complete tweet data in MongoDB
                 username = input_params.get("username")
                 if not username:
                     raise ValueError("Username is required for scrape_tweets task")
@@ -728,7 +728,7 @@ class TaskQueue:
                     hours=hours
                 )
                 
-                # Format tweets
+                # Format tweets for returning to caller
                 formatted_tweets = []
                 for tweet in tweets_data.get("tweets", []):
                     formatted_tweet = {
@@ -745,12 +745,40 @@ class TaskQueue:
                         "quoted_tweet": tweet.get("quoted_tweet")
                     }
                     formatted_tweets.append(formatted_tweet)
-
+                
+                # Import MongoDB client and get the scraped tweets collection
+                from ..mongodb_client import get_scraped_tweets_collection
+                collection = get_scraped_tweets_collection()
+    
+                # Build documents for each tweet; include additional metadata like username and the timestamp of scrapping
+                tweet_docs = []
+                scrapped_at = datetime.utcnow().isoformat()
+                for tweet in tweets_data.get("tweets", []):
+                    tweet_doc = {
+                        "tweet_id": tweet.get("id"),
+                        "username": username,
+                        "text": tweet.get("text"),
+                        "created_at": tweet.get("created_at"),
+                        "tweet_url": tweet.get("tweet_url"),
+                        "metrics": tweet.get("metrics", {}),
+                        "media": tweet.get("media", []),
+                        "urls": tweet.get("urls", []),
+                        "retweeted_by": tweet.get("retweeted_by"),
+                        "retweeted_at": tweet.get("retweeted_at"),
+                        "quoted_tweet": tweet.get("quoted_tweet"),
+                        "scraped_at": scrapped_at
+                    }
+                    tweet_docs.append(tweet_doc)
+    
+                if tweet_docs:
+                    await collection.insert_many(tweet_docs)
+    
                 return {
                     "username": username,
                     "tweets": formatted_tweets,
                     "next_cursor": tweets_data.get("next_cursor"),
-                    "timestamp": tweets_data.get("timestamp")
+                    "timestamp": tweets_data.get("timestamp"),
+                    "mongo_saved": True
                 }
 
             elif task.type == "update_profile":
