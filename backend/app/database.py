@@ -132,13 +132,7 @@ class DatabaseManager:
                         self.is_connected = True
                         return True
                 
-            # Fallback to SQLite
-            logger.info(f"Using SQLite database at: {SQLITE_URL}")
-            if await self.test_connection(SQLITE_URL):
-                success = self.configure_engine(SQLITE_URL, is_sqlite=True)
-                if success:
-                    self.is_connected = True
-                    return True
+            # No fallback to SQLite; using PostgreSQL exclusively.
                 
             raise Exception("Failed to connect to any database")
             
@@ -264,6 +258,12 @@ class DatabaseManager:
 
             async with self.async_session() as session:
                 # Restore each table
+                for table in Base.metadata.sorted_tables:
+                    try:
+                        backup_file = f"{backup_path}/{table.name}.json"
+                        if not os.path.exists(backup_file):
+                            continue
+
                 for table in Base.metadata.sorted_tables:
                     try:
                         backup_file = f"{backup_path}/{table.name}.json"
