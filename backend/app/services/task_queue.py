@@ -510,7 +510,7 @@ class TaskQueue:
                 user_agent=account.user_agent
             )
 
-            endpoint = self._get_endpoint_for_task(task.type)
+            endpoint = await self._get_endpoint_for_task(task.type, session)
             
             # Record action attempt for rate limiting
             input_params = task.input_params
