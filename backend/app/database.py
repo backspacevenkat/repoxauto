@@ -84,9 +84,9 @@ class DatabaseManager:
                     "server_settings": {
                         "application_name": "xauto",
                         "timezone": "UTC"
-                    },
-                    "ssl": "require"
-                }
+                    }
+                },
+                "connect_timeout": 10
             }
             
             self.engine = create_async_engine(url, **engine_args)
