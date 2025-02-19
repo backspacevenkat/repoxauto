@@ -132,71 +132,78 @@ class TaskQueue:
             task_groups[task_type].append(task)
         return task_groups
 
-    async def _process_task_group(self, session, task_type: str, task_list: List[Task]):
-        """Process a group of tasks of the same type with reduced flushes to improve throughput"""
-        endpoint = await self._get_endpoint_for_task(task_type, session)
-        
-        # Get available worker accounts for this task type
-        available_accounts = await self._get_available_worker_accounts(session, endpoint, len(task_list))
-        if not available_accounts:
-            logger.info(f"No available worker accounts for {task_type} tasks")
-            return
-
-        processing_tasks = []
-        tasks_to_reassign = []
-        
-        # Update task statuses
-        for task, account in zip(task_list, available_accounts):
-            task.status = "running"
-            task.worker_account_id = account.id
-            task.started_at = datetime.utcnow()
-            processing_tasks.append(self._process_task(session, task, account))
-
-        # Process tasks concurrently
-        if processing_tasks:
-            results = await asyncio.gather(*processing_tasks, return_exceptions=True)
+    async def _process_task_group(self, session: AsyncSession, task_type: str, task_list: List[Task]):
+        """Process a group of tasks of the same type"""
+        try:
+            endpoint = await self._get_endpoint_for_task(task_type, session)
             
-            # Handle results
-            for task, result in zip(task_list, results):
-                if result is None:
-                    # Task needs to be reassigned due to missing credentials
-                    tasks_to_reassign.append(task)
-                    continue
-                    
-                if isinstance(result, Exception):
-                    logger.error(f"Error processing task {task.id}: {str(result)}")
-                    task.status = "failed"
-                    task.error = str(result)
-                    task.retry_count += 1
-                    task.completed_at = datetime.utcnow()
-                else:
-                    task.status = "completed"
-                    task.result = result
-                    task.completed_at = datetime.utcnow()
+            # Get available worker accounts for this task type
+            available_accounts = await self._get_available_worker_accounts(session, endpoint, len(task_list))
+            if not available_accounts:
+                logger.info(f"No available worker accounts for {task_type} tasks")
+                return
+
+            processing_tasks = []
+            tasks_to_reassign = []
             
-            # Handle tasks that need reassignment
-            if tasks_to_reassign:
-                logger.info(f"Reassigning {len(tasks_to_reassign)} tasks due to worker validation issues")
-                # Get new workers, excluding the ones that failed validation
-                failed_worker_ids = set(task.worker_account_id for task in tasks_to_reassign)
-                new_accounts = await self._get_available_worker_accounts(
-                    session, 
-                    endpoint, 
-                    len(tasks_to_reassign)
-                )
-                new_accounts = [w for w in new_accounts if w.id not in failed_worker_ids]
+            # Update task statuses
+            for task, account in zip(task_list, available_accounts):
+                task.status = "running"
+                task.worker_account_id = account.id
+                task.started_at = datetime.utcnow()
+                session.add(task)
+                processing_tasks.append(self._process_task(session, task, account))
+
+            # Process tasks concurrently
+            if processing_tasks:
+                results = await asyncio.gather(*processing_tasks, return_exceptions=True)
                 
-                if new_accounts:
-                    # Reassign tasks to new workers
-                    for task, account in zip(tasks_to_reassign, new_accounts):
-                        task.worker_account_id = account.id
-                        task.status = "pending"  # Reset to pending for next attempt
-                        task.started_at = None
-                        session.add(task)
-                else:
-                    logger.warning("No additional workers available for task reassignment")
+                # Handle results
+                for task, result in zip(task_list, results):
+                    if result is None:
+                        # Task needs to be reassigned due to missing credentials
+                        tasks_to_reassign.append(task)
+                        continue
+                        
+                    if isinstance(result, Exception):
+                        logger.error(f"Error processing task {task.id}: {str(result)}")
+                        task.status = "failed"
+                        task.error = str(result)
+                        task.retry_count += 1
+                        task.completed_at = datetime.utcnow()
+                    else:
+                        task.status = "completed"
+                        task.result = result
+                        task.completed_at = datetime.utcnow()
+                    session.add(task)
+                
+                # Handle tasks that need reassignment
+                if tasks_to_reassign:
+                    logger.info(f"Reassigning {len(tasks_to_reassign)} tasks due to worker validation issues")
+                    # Get new workers, excluding the ones that failed validation
+                    failed_worker_ids = set(task.worker_account_id for task in tasks_to_reassign)
+                    new_accounts = await self._get_available_worker_accounts(
+                        session, 
+                        endpoint, 
+                        len(tasks_to_reassign)
+                    )
+                    new_accounts = [w for w in new_accounts if w.id not in failed_worker_ids]
+                    
+                    if new_accounts:
+                        # Reassign tasks to new workers
+                        for task, account in zip(tasks_to_reassign, new_accounts):
+                            task.worker_account_id = account.id
+                            task.status = "pending"  # Reset to pending for next attempt
+                            task.started_at = None
+                            session.add(task)
+                    else:
+                        logger.warning("No additional workers available for task reassignment")
 
-    async def _process_task_batch(self, session, tasks: List[Task]):
+        except Exception as e:
+            logger.error(f"Error processing task group: {str(e)}")
+            raise
+
+    async def _process_task_batch(self, session: AsyncSession, tasks: List[Task]):
         """Process a batch of tasks within a transaction"""
         if not tasks:
             return
@@ -211,49 +218,84 @@ class TaskQueue:
     async def _worker_loop(self):
         """Main worker loop to process tasks in parallel"""
         while self.running:
-            session = None
             try:
-                # Create a fresh session
-                session = self.session_maker()
-                # Use single transaction context
-                async with session.begin():
-                    # Get pending tasks
-                    stmt = select(Task).where(
-                        and_(
-                            Task.status == "pending",
-                            Task.worker_account_id != None,  # Only get tasks that have been assigned to workers
-                            Task.retry_count < 3
-                        )
-                    ).order_by(
-                        Task.priority.desc(),
-                        Task.created_at.asc()
-                    ).limit(10)  # Process in small batches
-                    
-                    result = await session.execute(stmt)
-                    tasks = result.scalars().all()
-                    
-                    if not tasks:
-                        await asyncio.sleep(0.1)
-                        continue
-                    
-                    # Process tasks within the same transaction
-                    await self._process_task_batch(session, tasks)
+                # Create session and process tasks in transaction
+                async with self.session_maker() as session:
+                    async with session.begin():
+                        # Get pending tasks
+                        stmt = select(Task).where(
+                            and_(
+                                Task.status == "pending",
+                                Task.worker_account_id != None,
+                                Task.retry_count < 3
+                            )
+                        ).order_by(
+                            Task.priority.desc(),
+                            Task.created_at.asc()
+                        ).limit(10)
+                        
+                        result = await session.execute(stmt)
+                        tasks = result.scalars().all()
+                        
+                        if not tasks:
+                            await asyncio.sleep(0.1)
+                            continue
+                        
+                        # Process tasks within transaction
+                        await self._process_task_batch(session, tasks)
 
             except asyncio.CancelledError:
                 logger.info("Worker received cancel signal")
                 raise
             except Exception as e:
                 logger.error(f"Worker error: {str(e)}", exc_info=True)
-                if session and session.in_transaction():
-                    await session.rollback()
                 await asyncio.sleep(0.1)
-            finally:
-                if session:
-                    await session.close()
 
-    async def _get_next_task(self, session: AsyncSession) -> Optional[Task]:
-        """Get next available task to process with row-level locking"""
-        # Use SELECT FOR UPDATE SKIP LOCKED to prevent multiple workers from getting the same task
+    async def _get_available_worker_accounts(
+        self,
+        session: AsyncSession,
+        endpoint: str,
+        count: int
+    ) -> List[Account]:
+        """Get multiple available worker accounts for parallel processing"""
+        # Query available workers
+        stmt = select(Account).where(
+            and_(
+                Account.act_type == 'worker',
+                Account.is_worker == True,
+                Account.deleted_at.is_(None),
+                or_(
+                    Account.validation_in_progress == ValidationState.COMPLETED,
+                    Account.validation_in_progress == ValidationState.PENDING
+                )
+            )
+        ).order_by(
+            Account.current_15min_requests.asc(),
+            Account.total_tasks_completed.asc()
+        )
+        
+        result = await session.execute(stmt)
+        all_accounts = result.scalars().all()
+
+        # Filter accounts by rate limits
+        available_accounts = []
+        for account in all_accounts:
+            can_use, _, _ = await self._check_account_rate_limits(session, account, endpoint)
+            if can_use:
+                available_accounts.append(account)
+                account.last_task_time = datetime.utcnow()
+                session.add(account)
+                if len(available_accounts) >= count:
+                    break
+
+        return available_accounts
+
+    async def _get_pending_tasks(
+        self,
+        session: AsyncSession,
+        batch_size: int = 10
+    ) -> List[Task]:
+        """Get pending tasks with row-level locking"""
         stmt = select(Task).where(
             and_(
                 Task.status == "pending",
@@ -262,14 +304,154 @@ class TaskQueue:
         ).order_by(
             Task.priority.desc(),
             Task.created_at.asc()
-        ).limit(1).with_for_update(skip_locked=True)
-        
+        ).limit(batch_size).with_for_update(skip_locked=True)
+    
         result = await session.execute(stmt)
-        task = result.scalar_one_or_none()
+        tasks = result.scalars().all()
+    
+        # Mark tasks as locked
+        for task in tasks:
+            task.status = "locked"
+            session.add(task)
+    
+        return tasks
+
+    async def get_pending_tasks(
+        self,
+        session: AsyncSession
+    ) -> List[Task]:
+        """Public method to get all pending tasks (without locking)"""
+        stmt = select(Task).where(Task.status == "pending")
+        result = await session.execute(stmt)
+        return result.scalars().all()
+
+    async def add_task(
+        self,
+        session: AsyncSession,
+        task_type: str,
+        input_params: dict,
+        priority: int = 0
+    ) -> Optional[Task]:
+        """Add a new task to the queue"""
+        try:
+            # Create task
+            task = Task(
+                type=task_type,
+                input_params=input_params,
+                priority=priority,
+                status="pending"
+            )
+            session.add(task)
+            await session.flush()
+            await session.refresh(task)
+
+            # For tweet interaction tasks, follow actions, and DMs, create the action record
+            if task_type in ["like_tweet", "retweet_tweet", "reply_tweet", "quote_tweet", "create_tweet", "follow_user", "send_dm"]:
+                account_id = input_params.get("account_id")
+                meta_data = input_params.get("meta_data", {})
+                
+                # Handle follow and DM actions differently
+                if task_type in ['follow_user', 'send_dm']:
+                    user = meta_data.get("user")
+                    if not user:
+                        logger.error(f"No user specified for {task_type} action")
+                        await session.rollback()
+                        return None
+                        
+                    # Check for existing follow action using JSON operator
+                    existing_action = await session.execute(
+                        select(Action).where(
+                            and_(
+                                Action.account_id == account_id,
+                                Action.action_type == task_type,
+                                Action.status.in_(["pending", "running", "locked"]),
+                                Action.meta_data.like(f'%"user": "{user}"%')  # Simple JSON string matching
+                            )
+                        )
+                    )
+                    existing_action = existing_action.scalar_one_or_none()
+                    
+                    if existing_action:
+                        logger.info(f"{task_type} action already exists for user {user}")
+                        await session.rollback()
+                        return None
+                        
+                    # Create action record for follow/DM
+                    action = Action(
+                        account_id=account_id,
+                        task_id=task.id,
+                        action_type=task_type,
+                        status="pending",
+                        meta_data=meta_data  # Use full meta_data for DMs to include text_content
+                    )
+                    session.add(action)
+                    await session.flush()
+                    
+                    # Update task input_params to include meta_data
+                    task.input_params = {
+                        "account_id": account_id,
+                        "meta_data": meta_data
+                    }
+                    await session.flush()
+                    
+                # Handle tweet actions
+                else:
+                    tweet_id = input_params.get("tweet_id")
+                    if account_id and tweet_id:
+                        # Check for existing tweet action
+                        existing_action = await session.execute(
+                            select(Action).where(
+                                and_(
+                                    Action.account_id == account_id,
+                                    Action.action_type == task_type,
+                                    Action.tweet_id == tweet_id,
+                                    Action.status.in_(["pending", "running", "locked"])
+                                )
+                            )
+                        )
+                        existing_action = existing_action.scalar_one_or_none()
+                        
+                        if existing_action:
+                            logger.info(f"Action already exists for {task_type} on tweet {tweet_id}")
+                            await session.rollback()
+                            return None
+
+                        # Create action record for tweet action
+                        action = Action(
+                            account_id=account_id,
+                            task_id=task.id,
+                            action_type=task_type,
+                            tweet_id=tweet_id,
+                            tweet_url=input_params.get("tweet_url"),
+                            status="pending",
+                            meta_data=meta_data
+                        )
+                        session.add(action)
+                        await session.flush()
+
+            return task
+        except Exception as e:
+            logger.error(f"Error adding task: {str(e)}")
+            await session.rollback()
+            return None
+
+    async def get_task_status(
+        self,
+        session: AsyncSession,
+        task_id: int
+    ) -> Optional[Task]:
+        """Get status of a task"""
+        stmt = (
+            select(Task)
+            .options(joinedload(Task.worker_account))
+            .where(Task.id == task_id)
+        )
+        result = await session.execute(stmt)
+        task = result.unique().scalar_one_or_none()
         
         if task:
-            # Immediately mark the task as locked to prevent other workers from picking it up
-            task.status = "locked"
+            # Ensure the task is attached to the session
+            await session.refresh(task)
         
         return task
 
@@ -286,188 +468,6 @@ class TaskQueue:
             
         try:
             # For action accounts, use lower rate limits
-            if endpoint in ["like_tweet", "retweet_tweet", "reply_tweet", "quote_tweet", "create_tweet", "follow_user", "send_dm"]:
-                # For follow and DM actions, enforce stricter limits
-                if endpoint == "follow_user":
-                    # Check 15min rate limit - max 2 follows per 15 minutes per account
-                    can_use_15min = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='15min',
-                        limit=2
-                    )
-                    
-                    # Check 24h rate limit - max 20 follows per day per account
-                    can_use_24h = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='24h',
-                        limit=20
-                    )
-                    
-                    # Add mandatory delay between follow actions
-                    last_action = await session.execute(
-                        select(Action).where(
-                            and_(
-                                Action.account_id == account.id,
-                                Action.action_type == endpoint,
-                                Action.status == "completed"
-                            )
-                        ).order_by(Action.executed_at.desc()).limit(1)
-                    )
-                    last_action = last_action.scalar_one_or_none()
-                    
-                    if last_action and last_action.executed_at:
-                        time_since_last = datetime.utcnow() - last_action.executed_at
-                        if time_since_last < timedelta(minutes=15):
-                            wait_time = timedelta(minutes=15) - time_since_last
-                            return False, f"Must wait {int(wait_time.total_seconds())} seconds between follows", datetime.utcnow() + wait_time
-                elif endpoint == "send_dm":
-                    # Check 15min rate limit - max 1 DM per 15 minutes per account
-                    can_use_15min = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='15min',
-                        limit=1
-                    )
-                    
-                    # Check 24h rate limit - max 24 DMs per day per account
-                    can_use_24h = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='24h',
-                        limit=24
-                    )
-                    
-                    # Add mandatory delay between DM actions
-                    last_action = await session.execute(
-                        select(Action).where(
-                            and_(
-                                Action.account_id == account.id,
-                                Action.action_type == endpoint,
-                                Action.status == "completed"
-                            )
-                        ).order_by(Action.executed_at.desc()).limit(1)
-                    )
-                    last_action = last_action.scalar_one_or_none()
-                    
-                    if last_action and last_action.executed_at:
-                        time_since_last = datetime.utcnow() - last_action.executed_at
-                        if time_since_last < timedelta(minutes=15):
-                            wait_time = timedelta(minutes=15) - time_since_last
-                            return False, f"Must wait {int(wait_time.total_seconds())} seconds between DMs", datetime.utcnow() + wait_time
-                else:
-                    # Other tweet actions use standard limits
-                    can_use_15min = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='15min',
-                        limit=30
-                    )
-                    
-                    can_use_24h = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='24h',
-                        limit=300
-                    )
-            else:
-                # For worker accounts doing search/scraping, use normal worker limits
-                can_use_15min = await self.rate_limiter.check_rate_limit(
-                    account_id=account.id,
-                    action_type=endpoint,
-                    window='15min',
-                    limit=self.settings["requestsPerWorker"]
-                )
-                
-                can_use_24h = await self.rate_limiter.check_rate_limit(
-                    account_id=account.id,
-                    action_type=endpoint,
-                    window='24h',
-                    limit=int(self.settings["requestsPerWorker"] * (24 * 60 / self.settings["requestInterval"]))
-                )
-            
-            if not can_use_15min:
-                return False, "15-minute rate limit exceeded", None
-            if not can_use_24h:
-                return False, "24-hour rate limit exceeded", None
-            return True, None, None
-            
-        except Exception as e:
-            logger.error(f"Error checking rate limits: {str(e)}")
-            return False, str(e), None
-
-    async def _get_available_worker_accounts(
-        self,
-        session: AsyncSession,
-        endpoint: str,
-        count: int
-    ) -> List[Account]:
-        """Get multiple available worker accounts for parallel processing"""
-        # Wrap query execution inside no_autoflush to avoid premature flushes and locked database errors.
-        async with session.no_autoflush:
-            stmt = select(Account).where(
-                and_(
-                    Account.act_type == 'worker',
-                    Account.is_worker == True,
-                    Account.deleted_at.is_(None),
-                    or_(
-                        Account.validation_in_progress == ValidationState.COMPLETED,
-                        Account.validation_in_progress == ValidationState.PENDING
-                    )
-                )
-            ).order_by(
-                Account.current_15min_requests.asc(),
-                Account.total_tasks_completed.asc()
-            )
-            result = await session.execute(stmt)
-            all_accounts = result.scalars().all()
-
-        # Filter accounts by rate limits
-        available_accounts = []
-        for account in all_accounts:
-            can_use, _, _ = await self._check_account_rate_limits(session, account, endpoint)
-            if can_use:
-                available_accounts.append(account)
-            if len(available_accounts) >= count:
-                break
-
-        # Update last task time for selected accounts
-        for account in available_accounts:
-            account.last_task_time = datetime.utcnow()
-
-        return available_accounts
-
-    async def _get_endpoint_for_task(self, task_type: str, session: AsyncSession) -> str:
-        """Map task type to rate limit endpoint"""
-        # Ensure settings are loaded
-        if self.settings is None:
-            self.settings = await self._load_settings(session)
-            
-        endpoints = {
-            # Action tasks with their own rate limits
-            "like_tweet": "like_tweet",
-            "retweet_tweet": "retweet_tweet",
-            "reply_tweet": "reply_tweet",
-            "quote_tweet": "quote_tweet",
-            "create_tweet": "create_tweet",
-            "follow_user": "follow_user",  # Follow actions use their own rate limit
-            "send_dm": "send_dm",  # DM actions use their own rate limit
-            "update_profile": "update_profile",  # Profile updates use their own rate limit
-            
-            # Non-tweet tasks use like_tweet for rate limiting
-            "scrape_profile": "like_tweet",
-            "scrape_tweets": "like_tweet",
-            "search_trending": "like_tweet",
-            "search_tweets": "like_tweet",
-            "search_users": "like_tweet",
-            "user_profile": "like_tweet",
-            "user_tweets": "like_tweet"
-        }
-        if task_type not in endpoints:
-            raise ValueError(f"Invalid task type: {task_type}")
-        return endpoints[task_type]
-
     async def _process_task(
         self,
         session: AsyncSession,
