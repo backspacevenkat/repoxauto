@@ -145,13 +145,12 @@ class TaskQueue:
         processing_tasks = []
         tasks_to_reassign = []
         
-        # Wrap the task status updates within no_autoflush to delay flushes.
-        async with session.no_autoflush:
-            for task, account in zip(task_list, available_accounts):
-                task.status = "running"
-                task.worker_account_id = account.id
-                task.started_at = datetime.utcnow()
-                processing_tasks.append(self._process_task(session, task, account))
+        # Update task statuses
+        for task, account in zip(task_list, available_accounts):
+            task.status = "running"
+            task.worker_account_id = account.id
+            task.started_at = datetime.utcnow()
+            processing_tasks.append(self._process_task(session, task, account))
 
         # Process tasks concurrently
         if processing_tasks:
@@ -194,7 +193,6 @@ class TaskQueue:
                         task.status = "pending"  # Reset to pending for next attempt
                         task.started_at = None
                         session.add(task)
-                    await session.commit()
                 else:
                     logger.warning("No additional workers available for task reassignment")
 
