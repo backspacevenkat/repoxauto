@@ -404,24 +404,24 @@ class TaskQueue:
         count: int
     ) -> List[Account]:
         """Get multiple available worker accounts for parallel processing"""
-        # Wrap query execution inside no_autoflush to avoid premature flushes and locked database errors.
-        async with session.no_autoflush:
-            stmt = select(Account).where(
-                and_(
-                    Account.act_type == 'worker',
-                    Account.is_worker == True,
-                    Account.deleted_at.is_(None),
-                    or_(
-                        Account.validation_in_progress == ValidationState.COMPLETED,
-                        Account.validation_in_progress == ValidationState.PENDING
-                    )
+        # Query available workers
+        stmt = select(Account).where(
+            and_(
+                Account.act_type == 'worker',
+                Account.is_worker == True,
+                Account.deleted_at.is_(None),
+                or_(
+                    Account.validation_in_progress == ValidationState.COMPLETED,
+                    Account.validation_in_progress == ValidationState.PENDING
                 )
-            ).order_by(
-                Account.current_15min_requests.asc(),
-                Account.total_tasks_completed.asc()
             )
-            result = await session.execute(stmt)
-            all_accounts = result.scalars().all()
+        ).order_by(
+            Account.current_15min_requests.asc(),
+            Account.total_tasks_completed.asc()
+        )
+        
+        result = await session.execute(stmt)
+        all_accounts = result.scalars().all()
 
         # Filter accounts by rate limits
         available_accounts = []
@@ -429,10 +429,10 @@ class TaskQueue:
             can_use, _, _ = await self._check_account_rate_limits(session, account, endpoint)
             if can_use:
                 available_accounts.append(account)
-            if len(available_accounts) >= count:
-                break
+                account.last_task_time = datetime.utcnow()
+                if len(available_accounts) >= count:
+                    break
 
-        # Update last task time for selected accounts
         for account in available_accounts:
             account.last_task_time = datetime.utcnow()
 
