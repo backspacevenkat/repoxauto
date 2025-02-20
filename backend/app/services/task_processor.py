@@ -440,3 +440,4 @@ class TaskProcessor:
             logger.info(f"Attempting profile update for account {account_no}")
             logger.info(f"Update parameters: {json.dumps(meta_data, indent=2)}")
 
+            # Update profile using API
