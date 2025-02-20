@@ -97,81 +97,13 @@ class TaskQueue:
             task_groups[task_type].append(task)
         return task_groups
 
-    async def _process_task_group(self, session, task_type: str, task_list: List[Task]):
-        """Process a group of tasks of the same type with reduced flushes to improve throughput"""
-        endpoint = await self._get_endpoint_for_task(task_type, session)
-        
-        # Get available worker accounts for this task type
-        available_accounts = await self._get_available_worker_accounts(session, endpoint, len(task_list))
-        if not available_accounts:
-            logger.info(f"No available worker accounts for {task_type} tasks")
-            return
-
-        processing_tasks = []
-        tasks_to_reassign = []
-        
-        # Update task statuses
-        for task, account in zip(task_list, available_accounts):
-            task.status = "running"
-            task.worker_account_id = account.id
-            task.started_at = datetime.utcnow()
-            processing_tasks.append(self._process_task(session, task, account))
-
-        # Process tasks concurrently
-        if processing_tasks:
-            results = await asyncio.gather(*processing_tasks, return_exceptions=True)
-            
-            # Handle results
-            for task, result in zip(task_list, results):
-                if result is None:
-                    # Task needs to be reassigned due to missing credentials
-                    tasks_to_reassign.append(task)
-                    continue
-                    
-                if isinstance(result, Exception):
-                    logger.error(f"Error processing task {task.id}: {str(result)}")
-                    task.status = "failed"
-                    task.error = str(result)
-                    task.retry_count += 1
-                    task.completed_at = datetime.utcnow()
-                else:
-                    task.status = "completed"
-                    task.result = result
-                    task.completed_at = datetime.utcnow()
-            
-            # Handle tasks that need reassignment
-            if tasks_to_reassign:
-                logger.info(f"Reassigning {len(tasks_to_reassign)} tasks due to worker validation issues")
-                # Get new workers, excluding the ones that failed validation
-                failed_worker_ids = set(task.worker_account_id for task in tasks_to_reassign)
-                new_accounts = await self._get_available_worker_accounts(
-                    session, 
-                    endpoint, 
-                    len(tasks_to_reassign)
-                )
-                new_accounts = [w for w in new_accounts if w.id not in failed_worker_ids]
-                
-                if new_accounts:
-                    # Reassign tasks to new workers
-                    for task, account in zip(tasks_to_reassign, new_accounts):
-                        task.worker_account_id = account.id
-                        task.status = "pending"  # Reset to pending for next attempt
-                        task.started_at = None
-                        session.add(task)
-                else:
-                    logger.warning("No additional workers available for task reassignment")
-
     async def _process_task_batch(self, session, tasks: List[Task]):
         """Process a batch of tasks within a transaction"""
         if not tasks:
             return
             
-        # Group tasks by type
-        task_groups = self._group_tasks_by_type(tasks)
-        
-        # Process each group
-        for task_type, task_list in task_groups.items():
-            await self._process_task_group(session, task_type, task_list)
+        # Delegate task processing to TaskProcessor
+        await self.task_processor.process_batch(session, tasks)
 
     async def _worker_loop(self):
         """Main worker loop to process tasks in parallel"""
