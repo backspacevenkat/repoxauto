@@ -69,6 +69,9 @@ class TaskQueue:
         await self.stop()
         
         try:
+            # Initialize components in a transaction
+            async with self.session_manager.transaction() as session:
+                # Load settings and initialize worker pool
                 await self.worker_pool.load_settings(session)
                 
                 # Override settings if provided
@@ -254,9 +257,6 @@ class TaskQueue:
         endpoint: str
     ) -> Tuple[bool, Optional[str], Optional[datetime]]:
         """Check if account has hit rate limits"""
-        # Ensure settings are loaded
-        if self.settings is None:
-            self.settings = await self._load_settings(session)
             
         try:
             # For action accounts, use lower rate limits
