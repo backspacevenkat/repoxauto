@@ -392,3 +392,10 @@ class TaskProcessor:
             # Build documents for each tweet; include additional metadata like username and the timestamp of scrapping
             tweet_docs = []
             scrapped_at = datetime.utcnow().isoformat()
+            for tweet in tweets_data.get("tweets", []):
+                tweet_doc = {
+                    "tweet_id": tweet.get("id"),
+                    "username": username,
+                    "text": tweet.get("text"),
+                    "created_at": tweet.get("created_at"),
+                    "tweet_url": tweet.get("tweet_url"),
