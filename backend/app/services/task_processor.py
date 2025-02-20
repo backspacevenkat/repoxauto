@@ -472,3 +472,4 @@ class TaskProcessor:
                 profile_update = await session.execute(
                     select(ProfileUpdate).where(ProfileUpdate.id == profile_update_id)
                 )
+                profile_update = profile_update.scalar_one_or_none()
