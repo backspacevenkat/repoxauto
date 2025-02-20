@@ -87,16 +87,17 @@ class TaskProcessor:
                     )
 
                     # Handle results
-            for task, result in zip(task_list, results):
+                    for task, result in zip(task_list, results):
                 if result is None:
                     tasks_to_reassign.append(task)
                     continue
 
                 # Check if it's an exception but the request actually succeeded
-                if isinstance(result, Exception) and "Username and password must be escaped" in str(result):
-                    # This is just a proxy encoding warning, not a real error
-                    # Check if we got a 200 OK in the logs
-                    if "HTTP/1.1 200 OK" in str(result):
+                if isinstance(result, Exception):
+                    error_str = str(result)
+                    if "Username and password must be escaped" in error_str and "HTTP/1.1 200 OK" in error_str:
+                        # This is just a proxy encoding warning, not a real error
+                        # The request succeeded (200 OK)
                         task.status = "completed"
                         task.result = {"success": True, "message": "Task completed successfully"}
                         task.completed_at = datetime.utcnow()
@@ -108,12 +109,11 @@ class TaskProcessor:
                             worker.total_tasks_completed += 1
                             session.add(worker)
                     else:
-                        tasks_to_reassign.append(task)
-                elif isinstance(result, Exception):
-                    logger.error(f"Error processing task {task.id}: {str(result)}")
-                    task.status = "failed"
-                    task.error = str(result)
-                    task.retry_count += 1
+                        # Real error occurred
+                        logger.error(f"Error processing task {task.id}: {error_str}")
+                        task.status = "failed"
+                        task.error = error_str
+                        task.retry_count += 1
                     task.completed_at = datetime.utcnow()
                 else:
                     task.status = "completed"
