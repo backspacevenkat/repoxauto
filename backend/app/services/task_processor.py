@@ -459,3 +459,4 @@ class TaskProcessor:
             else:
                 error_msg = result.get('error', 'Unknown error')
                 logger.error(f"Failed to update profile for account {account_no}")
+                logger.error(f"Error: {error_msg}")
