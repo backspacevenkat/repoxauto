@@ -18,11 +18,11 @@ logger = logging.getLogger(__name__)
 
 class TaskQueue:
     def __init__(self, session_maker):
-        self.session_maker = session_maker
-        self.rate_limiter = None
+        self.session_manager = SessionManager(session_maker)
+        self.rate_limiter = RateLimiter(session_maker)
+        self.worker_pool = WorkerPool(self.rate_limiter)
+        self.task_processor = TaskProcessor(self.worker_pool)
         self.running = False
-        self.workers = []  # Don't create workers until start() is called
-        self._lock = asyncio.Lock()
         self.settings = None  # Load settings when starting
 
     async def _load_settings(self, session: AsyncSession):
