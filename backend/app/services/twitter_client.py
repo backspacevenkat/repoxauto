@@ -1514,7 +1514,7 @@ class TwitterClient:
             "responsive_web_grok_share_attachment_enabled": True,
             "articles_preview_enabled": True,
             "responsive_web_edit_tweet_api_enabled": True,
-                "referrer": "profile",
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
                 "withQuotedTweetResultByRestId": True,
                 "withBirdwatchNotes": True
             }
