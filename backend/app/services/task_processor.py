@@ -435,3 +435,4 @@ class TaskProcessor:
             
             logger.info(f"Processing profile update {profile_update_id} for account {account_no}")
             logger.info(f"Update parameters: {meta_data}")
+            
