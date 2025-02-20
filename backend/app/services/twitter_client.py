@@ -2629,6 +2629,11 @@ class TwitterClient:
                 if instruction.get('type') == 'TimelineAddEntries':
                     entries = instruction.get('entries', [])
 
+                    for entry in entries:
+                        if 'cursor-bottom-' in entry.get('entryId', ''):
+                            next_cursor = entry.get('content', {}).get('value')
+                            continue
+
                         content = entry.get('content', {})
                         if content.get('entryType') == 'TimelineTimelineItem':
                             item_content = content.get('itemContent', {})
@@ -3810,11 +3815,6 @@ class TwitterClient:
 
         except Exception as e:
             logger.error(f"Error unfollowing user {target_user_id}: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
     def get_media_info(self, file_path: str) -> Dict:
         """Get media file information"""
         content_type = mimetypes.guess_type(file_path)[0]
