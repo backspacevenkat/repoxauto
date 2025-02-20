@@ -1504,7 +1504,7 @@ class TwitterClient:
             "responsive_web_graphql_exclude_directive_enabled": True,
             "verified_phone_label_enabled": False,
             "creator_subscriptions_tweet_preview_api_enabled": True,
-                "withThreadedReplies": True,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
                 "withThreadedRepliesV2": True,
                 "withThreadedTweets": True,
                 "withThreadedTweetsV2": True,
