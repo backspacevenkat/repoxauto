@@ -556,3 +556,4 @@ class TaskProcessor:
                     raise ValueError("text_content required for quote tweet")
                 if not tweet_id:
                     raise ValueError("tweet_id required for quote tweet")
+                return await client.quote_tweet(tweet_id, text_content, media)
