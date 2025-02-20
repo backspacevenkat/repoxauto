@@ -410,3 +410,4 @@ class TaskProcessor:
                 tweet_docs.append(tweet_doc)
 
             if tweet_docs:
+                await collection.insert_many(tweet_docs)
