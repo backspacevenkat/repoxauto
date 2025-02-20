@@ -484,3 +484,4 @@ class TaskProcessor:
                         profile_update.status = "failed"
                         profile_update.error = error_msg
                         
+                        # Check for rate limit errors
