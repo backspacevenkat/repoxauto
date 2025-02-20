@@ -1306,11 +1306,13 @@ class TwitterClient:
                             logger.warning(f'Could not decode JSON response: {response.content[:200]}')
                         return {}
 
-                except httpx.TimeoutException:
-                    logger.warning(f'Request timeout (attempt {retry_count + 1}/{MAX_RETRIES})')
+                except httpx.TimeoutException as e:
+                    logger.warning(f'Request timeout (attempt {retry_count + 1}/{MAX_RETRIES}): {str(e)}')
                     retry_count += 1
                     if retry_count < MAX_RETRIES:
-                        await asyncio.sleep(2 ** retry_count)  # Exponential backoff
+                        delay = (2 ** retry_count) + random.uniform(0, 1)  # Exponential backoff with jitter
+                        logger.info(f"Waiting {delay:.2f} seconds before retrying...")
+                        await asyncio.sleep(delay)
                     continue
                     
                 except Exception as e:
@@ -3180,8 +3182,6 @@ class TwitterClient:
                 "error": str(e)
             }
     
-    async def send_dm(self, recipient_id: str, text: str, media: Optional[str] = None) -> Dict:
-        """
         Send a DM via X/Twitter's internal DM endpoint (1.1/dm/new.json)
         NOTE: This version uses form data to match how the web client sends messages.
         """
