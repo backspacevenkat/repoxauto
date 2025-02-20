@@ -1472,7 +1472,7 @@ class TwitterClient:
             "longform_notetweets_inline_media_enabled": True,
             "responsive_web_enhance_cards_enabled": False,
             "profile_label_improvements_pcf_label_in_post_enabled": True,
-                "withReplyCount": True,
+            "rweb_tipjar_consumption_enabled": True,
                 "withTweetQuoteCount": True,
                 "withTweetResult": True,
                 "withTweetResultByRestId": True,
