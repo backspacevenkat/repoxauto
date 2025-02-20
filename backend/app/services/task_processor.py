@@ -401,3 +401,5 @@ class TaskProcessor:
                     "tweet_url": tweet.get("tweet_url"),
                     "metrics": tweet.get("metrics", {}),
                     "media": tweet.get("media", []),
+                    "urls": tweet.get("urls", []),
+                    "retweeted_by": tweet.get("retweeted_by"),
