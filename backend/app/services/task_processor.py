@@ -158,7 +158,7 @@ class TaskProcessor:
                         session.add(task)
                 except asyncio.TimeoutError:
                     logger.error("Task processing timed out")
-                    for task in task_list:
+                    
                     # Handle timeout for all tasks in batch
                     for task in task_list:
                         if task.retry_count >= 3:  # Max retries reached
