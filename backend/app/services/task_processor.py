@@ -511,3 +511,4 @@ class TaskProcessor:
                             })
                     except Exception as broadcast_error:
                         logger.error(f"Error broadcasting profile update status: {broadcast_error}")
+            except Exception as e:
