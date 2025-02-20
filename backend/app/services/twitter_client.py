@@ -1513,7 +1513,7 @@ class TwitterClient:
             "responsive_web_grok_analyze_post_followups_enabled": False,
             "responsive_web_grok_share_attachment_enabled": True,
             "articles_preview_enabled": True,
-                "withAuxiliaryUserLabels": False,
+            "responsive_web_edit_tweet_api_enabled": True,
                 "referrer": "profile",
                 "withQuotedTweetResultByRestId": True,
                 "withBirdwatchNotes": True
