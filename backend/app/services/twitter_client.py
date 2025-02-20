@@ -1489,7 +1489,7 @@ class TwitterClient:
             "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
             "view_counts_everywhere_api_enabled": True,
             "longform_notetweets_consumption_enabled": True,
-                "withReplyContext": True,
+            "responsive_web_twitter_article_tweet_consumption_enabled": True,
                 "withContextualizedReplyCreation": True,
                 "withSelfThreads": True,
                 "withExpandedReplyCount": True,
