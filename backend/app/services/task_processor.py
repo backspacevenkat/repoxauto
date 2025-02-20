@@ -159,16 +159,30 @@ class TaskProcessor:
                 except asyncio.TimeoutError:
                     logger.error("Task processing timed out")
                     for task in task_list:
-                        task.status = "pending"  # Reset to pending for retry
-                        task.error = "Task processing timed out"
-                        task.retry_count += 1
+                    # Handle timeout for all tasks in batch
+                    for task in task_list:
+                        if task.retry_count >= 3:  # Max retries reached
+                            task.status = "failed"
+                            task.error = "Task failed after maximum retries (timeout)"
+                            task.completed_at = datetime.utcnow()
+                            logger.error(f"Task {task.id} failed after maximum retries (timeout)")
+                        else:
+                            task.status = "pending"  # Reset to pending for retry
+                            task.error = "Task processing timed out"
+                            task.retry_count += 1
+                            logger.warning(f"Task {task.id} timed out (retry {task.retry_count}/3)")
+                        
+                        # Clear any partial results
+                        task.result = None
                         session.add(task)
                         
                     # Reset workers for reuse
                     for worker in available_workers:
                         self.worker_pool.deactivate_worker(worker)
+                        logger.info(f"Deactivated worker {worker.account_no} after timeout")
 
-                    # Handle tasks that need reassignment
+                    # Handle tasks that need reassignment (only non-failed tasks)
+                    tasks_to_reassign.extend([t for t in task_list if t.status == "pending"])
                     if tasks_to_reassign:
                         await self._reassign_tasks(session, tasks_to_reassign, endpoint)
 
