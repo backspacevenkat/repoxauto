@@ -516,3 +516,4 @@ class TaskProcessor:
             
             return result
 
+        # Handle Twitter action tasks
