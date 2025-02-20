@@ -2614,6 +2614,11 @@ class TwitterClient:
                 raise Exception("Search failed: No timeline data found")
 
             timeline_data = timeline.get('timeline', {})
+            if not timeline_data:
+                logger.error("No timeline data found in response")
+                raise Exception("Search failed: Empty timeline")
+
+            # Process instructions with validation
             instructions = timeline_data.get('instructions', [])
             if not instructions:
                 logger.error("No instructions found in timeline")
@@ -2623,11 +2628,6 @@ class TwitterClient:
             for instruction in instructions:
                 if instruction.get('type') == 'TimelineAddEntries':
                     entries = instruction.get('entries', [])
-
-                    for entry in entries:
-                        if 'cursor-bottom-' in entry.get('entryId', ''):
-                            next_cursor = entry.get('content', {}).get('value')
-                            continue
 
                         content = entry.get('content', {})
                         if content.get('entryType') == 'TimelineTimelineItem':
