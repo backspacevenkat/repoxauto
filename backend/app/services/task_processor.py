@@ -506,3 +506,4 @@ class TaskProcessor:
                             await app.state.connection_manager.broadcast({
                                 "type": "profile_update_status",
                                 "profile_update_id": profile_update_id,
+                                "status": profile_update.status,
