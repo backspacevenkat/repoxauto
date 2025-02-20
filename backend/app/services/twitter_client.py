@@ -1530,7 +1530,7 @@ class TwitterClient:
             "premium_content_api_read_enabled": False,
             "communities_web_enable_tweet_community_results_fetch": True,
             "c9s_tweet_anatomy_moderator_badge_enabled": True,
-            # Try multiple paths to find timeline data
+            "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
             timeline_data = None
             timeline_paths = [
                 lambda: response.get('data', {}).get('user', {}).get('result', {}).get('timeline_v2', {}).get('timeline', {}),
