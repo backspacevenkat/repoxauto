@@ -1486,7 +1486,7 @@ class TwitterClient:
             "responsive_web_grok_share_attachment_enabled": True,
             "articles_preview_enabled": True,
             "responsive_web_edit_tweet_api_enabled": True,
-                "withReplyCount": True,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
                 "withReplyCountV2": True,
                 "withTimelinesCount": True,
                 "withReplyContext": True,
