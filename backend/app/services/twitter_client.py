@@ -1528,7 +1528,7 @@ class TwitterClient:
             "longform_notetweets_inline_media_enabled": True,
             "responsive_web_enhance_cards_enabled": False,
             "premium_content_api_read_enabled": False,
-            next_cursor = None
+            "communities_web_enable_tweet_community_results_fetch": True,
 
             # Try multiple paths to find timeline data
             timeline_data = None
