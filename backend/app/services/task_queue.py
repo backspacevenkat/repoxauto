@@ -93,10 +93,6 @@ class TaskQueue:
         except Exception as e:
             logger.error(f"Error starting task queue: {str(e)}")
             self.running = False
-                    logger.info(f"Started task queue with settings: {self.settings}")
-        except Exception as e:
-            logger.error(f"Error starting task queue: {str(e)}")
-            self.running = False
             raise
 
     async def stop(self):
@@ -213,40 +209,16 @@ class TaskQueue:
         while self.running:
             try:
                 # Process tasks in transaction
-                async with self.session_maker() as session:
-                    async with session.begin():
-                        # Get pending tasks with row-level locking
-                        stmt = (
-                            select(Task)
-                            .with_for_update(skip_locked=True)
-                            .where(
-                                and_(
-                                    Task.status == "pending",
-                                    Task.worker_account_id != None,
-                                    Task.retry_count < 3
-                                )
-                            )
-                            .order_by(
-                                Task.priority.desc(),
-                                Task.created_at.asc()
-                            )
-                            .limit(10)
-                        )
-                        
-                        result = await session.execute(stmt)
-                        tasks = result.scalars().all()
-                        
-                        if not tasks:
-                            await asyncio.sleep(0.1)
-                            continue
-                        
-                        # Mark tasks as locked
-                        for task in tasks:
-                            task.status = "locked"
-                            session.add(task)
-                        
-                        # Process tasks within transaction
-                        await self._process_task_batch(session, tasks)
+                async with self.session_manager.transaction() as session:
+                    # Get pending tasks with row-level locking
+                    tasks = await self._get_pending_tasks(session)
+                    
+                    if not tasks:
+                        await asyncio.sleep(0.1)
+                        continue
+                    
+                    # Process tasks within transaction
+                    await self.task_processor.process_batch(session, tasks)
 
             except asyncio.CancelledError:
                 logger.info("Worker received cancel signal")
