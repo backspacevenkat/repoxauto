@@ -3182,6 +3182,8 @@ class TwitterClient:
                 "error": str(e)
             }
     
+    async def send_dm(self, recipient_id: str, text: str, media: Optional[str] = None) -> Dict:
+        """
         Send a DM via X/Twitter's internal DM endpoint (1.1/dm/new.json)
         NOTE: This version uses form data to match how the web client sends messages.
         """
@@ -3196,8 +3198,6 @@ class TwitterClient:
             sender_id = None
             if self.access_token and "-" in self.access_token:
                 sender_id = self.access_token.split("-")[0]
-            if not sender_id:
-                logger.error("Could not extract sender ID from access_token.")
                 return {"success": False, "error": "Invalid or missing access_token."}
 
             # Build the "conversation_id"
