@@ -100,17 +100,29 @@ class TaskProcessor:
                                 # Extract response data between the warning and the end
                                 response_data = error_str.split("HTTP/1.1 200 OK", 1)
                                 if len(response_data) > 1 and "200 OK" in error_str:
-                                    # This was actually a successful request
-                                    task.status = "completed"
-                                    task.result = {"success": True, "message": "Task completed successfully"}
-                                    task.completed_at = datetime.utcnow()
-                                    
-                                    # Update worker's last task time and metrics
-                                    worker = await session.get(Account, task.worker_account_id)
-                                    if worker:
-                                        worker.last_task_time = datetime.utcnow()
-                                        worker.total_tasks_completed += 1
-                                        session.add(worker)
+                                    try:
+                                        # Try to extract JSON response after 200 OK
+                                        json_str = response_data[1].strip()
+                                        if json_str:
+                                            # This was actually a successful request with data
+                                            task.status = "completed"
+                                            task.result = {"success": True, "message": "Task completed successfully"}
+                                            task.completed_at = datetime.utcnow()
+                                            
+                                            # Update worker's last task time and metrics
+                                            worker = await session.get(Account, task.worker_account_id)
+                                            if worker:
+                                                worker.last_task_time = datetime.utcnow()
+                                                worker.total_tasks_completed += 1
+                                                session.add(worker)
+                                        else:
+                                            # No response data after 200 OK
+                                            logger.error(f"Empty response data for task {task.id}")
+                                            tasks_to_reassign.append(task)
+                                    except Exception as e:
+                                        # Error parsing response data
+                                        logger.error(f"Error parsing response data for task {task.id}: {str(e)}")
+                                        tasks_to_reassign.append(task)
                                 else:
                                     # Proxy error without success
                                     logger.error(f"Proxy error for task {task.id}: {error_str}")
