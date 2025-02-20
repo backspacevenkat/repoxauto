@@ -123,6 +123,23 @@ class TaskProcessor:
                     # Update worker's last task time and metrics
                     worker = await session.get(Account, task.worker_account_id)
                     if worker:
+                        worker.last_task_time = datetime.utcnow()
+                        worker.total_tasks_completed += 1
+                        session.add(worker)
+                        
+                session.add(task)
+                        
+                except asyncio.TimeoutError:
+                    logger.error("Task processing timed out")
+                    for task in task_list:
+                        task.status = "pending"  # Reset to pending for retry
+                        task.error = "Task processing timed out"
+                        task.retry_count += 1
+                        session.add(task)
+                        
+                    # Reset workers for reuse
+                    for worker in available_workers:
+                        self.worker_pool.deactivate_worker(worker)
 
                 # Handle tasks that need reassignment
                 if tasks_to_reassign:
