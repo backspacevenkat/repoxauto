@@ -1512,7 +1512,7 @@ class TwitterClient:
             "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
             "responsive_web_grok_analyze_post_followups_enabled": False,
             "responsive_web_grok_share_attachment_enabled": True,
-                "withBirdwatchPivots": False,
+            "articles_preview_enabled": True,
                 "withAuxiliaryUserLabels": False,
                 "referrer": "profile",
                 "withQuotedTweetResultByRestId": True,
