@@ -587,25 +587,37 @@ class TaskProcessor:
         tasks: List[Task],
         endpoint: str
     ) -> None:
-        """Reassign failed tasks to new workers"""
-        # Get new workers, excluding the ones that failed
-        failed_worker_ids = set(task.worker_account_id for task in tasks)
-        new_workers = await self.worker_pool.get_available_workers(
-            session,
-            endpoint,
-            len(tasks)
-        )
-        new_workers = [w for w in new_workers if w.id not in failed_worker_ids]
+        """Reassign failed tasks to new workers, prioritizing original workers"""
+        reassigned_count = 0
+        for task in tasks:
+            # Try to reassign to original worker
+            if task.worker_account_id:
+                worker = await session.get(Account, task.worker_account_id)
+                if worker and await self.worker_pool._is_worker_available(session, worker, endpoint):
+                    task.status = "pending"
+                    task.started_at = None
+                    session.add(task)
+                    reassigned_count += 1
+                    continue
 
-        if new_workers:
-            # Reassign tasks to new workers
-            for task, worker in zip(tasks, new_workers):
-                task.worker_account_id = worker.id
-                task.status = "pending"
-                task.started_at = None
-                session.add(task)
-        else:
-            logger.warning("No additional workers available for task reassignment")
+            # If original worker not available, find a new one
+            failed_worker_ids = set(task.worker_account_id for task in tasks)
+            new_workers = await self.worker_pool.get_available_workers(
+                session,
+                endpoint,
+                len(tasks) - reassigned_count
+            )
+            new_workers = [w for w in new_workers if w.id not in failed_worker_ids]
+
+            if new_workers:
+                # Reassign tasks to new workers
+                for task, worker in zip(tasks, new_workers):
+                    task.worker_account_id = worker.id
+                    task.status = "pending"
+                    task.started_at = None
+                    session.add(task)
+            else:
+                logger.warning("No additional workers available for task reassignment")
 
     async def _get_endpoint_for_task(self, task_type: str) -> str:
         """Map task type to rate limit endpoint"""
