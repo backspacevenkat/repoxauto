@@ -399,3 +399,5 @@ class TaskProcessor:
                     "text": tweet.get("text"),
                     "created_at": tweet.get("created_at"),
                     "tweet_url": tweet.get("tweet_url"),
+                    "metrics": tweet.get("metrics", {}),
+                    "media": tweet.get("media", []),
