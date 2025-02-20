@@ -345,13 +345,13 @@ class TaskQueue:
                     "name": legacy.get('name'),
                     "description": legacy.get('description'),
                     "location": legacy.get('location'),
-        account: Account
-    ) -> dict:
-        """Process a single task"""
-        client = None
-        try:
-            proxy_config = account.get_proxy_config()
-
+                    "url": legacy.get('url'),
+                    "profile_image_url": legacy.get('profile_image_url_https'),
+                    "profile_banner_url": legacy.get('profile_banner_url'),
+                    "followers_count": legacy.get('followers_count'),
+                    "following_count": legacy.get('friends_count'),
+                    "tweets_count": legacy.get('statuses_count'),
+                    "likes_count": legacy.get('favourites_count'),
             # Check if worker has required credentials
             required_fields = {
                 "auth_token": account.auth_token,
