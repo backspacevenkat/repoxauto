@@ -414,3 +414,5 @@ class TaskProcessor:
 
             return {
                 "username": username,
+                "tweets": formatted_tweets,
+                "next_cursor": tweets_data.get("next_cursor"),
