@@ -413,3 +413,4 @@ class TaskProcessor:
                 await collection.insert_many(tweet_docs)
 
             return {
+                "username": username,
