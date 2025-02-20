@@ -169,12 +169,33 @@ class TaskProcessor:
                                         tasks_to_reassign.append(task)
                                         logger.warning(f"Task {task.id} will retry (proxy error, attempt {task.retry_count}/3)")
                             else:
-                                # Real error occurred
+                                # Handle non-proxy errors
                                 logger.error(f"Error processing task {task.id}: {error_str}")
-                                task.status = "failed"
-                                task.error = error_str
-                                task.retry_count += 1
-                                task.completed_at = datetime.utcnow()
+                                
+                                # Check for retryable errors
+                                retryable_errors = [
+                                    "timeout",
+                                    "connection error",
+                                    "network error",
+                                    "rate limit",
+                                    "429",
+                                    "503",
+                                    "502",
+                                    "500"
+                                ]
+                                
+                                is_retryable = any(err in error_str.lower() for err in retryable_errors)
+                                
+                                if is_retryable and task.retry_count < 3:
+                                    task.retry_count += 1
+                                    task.error = error_str
+                                    tasks_to_reassign.append(task)
+                                    logger.warning(f"Task {task.id} will retry (retryable error, attempt {task.retry_count}/3)")
+                                else:
+                                    task.status = "failed"
+                                    task.error = error_str if not is_retryable else f"Error persisted after maximum retries: {error_str}"
+                                    task.completed_at = datetime.utcnow()
+                                    logger.error(f"Task {task.id} failed: {task.error}")
                         else:
                             task.status = "completed"
                             task.result = result
