@@ -1529,7 +1529,7 @@ class TwitterClient:
             "responsive_web_enhance_cards_enabled": False,
             "premium_content_api_read_enabled": False,
             "communities_web_enable_tweet_community_results_fetch": True,
-
+            "c9s_tweet_anatomy_moderator_badge_enabled": True,
             # Try multiple paths to find timeline data
             timeline_data = None
             timeline_paths = [
