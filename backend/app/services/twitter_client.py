@@ -1473,7 +1473,7 @@ class TwitterClient:
             "responsive_web_enhance_cards_enabled": False,
             "profile_label_improvements_pcf_label_in_post_enabled": True,
             "rweb_tipjar_consumption_enabled": True,
-                "withTweetQuoteCount": True,
+            "responsive_web_graphql_exclude_directive_enabled": True,
                 "withTweetResult": True,
                 "withTweetResultByRestId": True,
                 "withTweetResultByTweetId": True,
