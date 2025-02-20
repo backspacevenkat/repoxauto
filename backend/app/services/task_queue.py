@@ -299,11 +299,11 @@ class TaskQueue:
                     cursor=cursor
                 )
                 
-        result = await session.execute(stmt)
-        all_accounts = result.scalars().all()
-
-        # Filter accounts by rate limits
-        available_accounts = []
+                # Save users to database if requested
+                if input_params.get("save_to_db", False):
+                    for user in result.get('users', []):
+                        db_user = SearchedUser(
+                            keyword=keyword,
         for account in all_accounts:
             can_use, _, _ = await self._check_account_rate_limits(session, account, endpoint)
             if can_use:
