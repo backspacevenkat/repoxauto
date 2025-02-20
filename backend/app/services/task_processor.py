@@ -193,69 +193,202 @@ class TaskProcessor:
             action = action.scalar_one_or_none()
 
         # Execute task based on type
-        if task.type == "follow_user":
-            user = input_params.get("meta_data", {}).get("user")
-            if not user:
-                raise ValueError("user required for follow action")
-            return await client.follow_user(user)
-
-        elif task.type == "like_tweet":
-            tweet_id = input_params.get("tweet_id")
-            if not tweet_id:
-                raise ValueError("tweet_id required for like action")
-            return await client.like_tweet(tweet_id)
-
-        # Add other task types here...
-
-        raise ValueError(f"Invalid task type: {task.type}")
-
-    async def _reassign_tasks(
-        self,
-        session: AsyncSession,
-        tasks: List[Task],
-        endpoint: str
-    ) -> None:
-        """Reassign failed tasks to new workers"""
-        # Get new workers, excluding the ones that failed
-        failed_worker_ids = set(task.worker_account_id for task in tasks)
-        new_workers = await self.worker_pool.get_available_workers(
-            session,
-            endpoint,
-            len(tasks)
-        )
-        new_workers = [w for w in new_workers if w.id not in failed_worker_ids]
-
-        if new_workers:
-            # Reassign tasks to new workers
-            for task, worker in zip(tasks, new_workers):
-                task.worker_account_id = worker.id
-                task.status = "pending"
-                task.started_at = None
-                session.add(task)
-        else:
-            logger.warning("No additional workers available for task reassignment")
-
-    async def _get_endpoint_for_task(self, task_type: str) -> str:
-        """Map task type to rate limit endpoint"""
-        endpoints = {
-            "like_tweet": "like_tweet",
-            "retweet_tweet": "retweet_tweet",
-            "reply_tweet": "reply_tweet",
-            "quote_tweet": "quote_tweet",
-            "create_tweet": "create_tweet",
-            "follow_user": "follow_user",
-            "send_dm": "send_dm",
-            "update_profile": "update_profile",
-            "scrape_profile": "like_tweet",
-            "scrape_tweets": "like_tweet",
-            "search_trending": "like_tweet",
-            "search_tweets": "like_tweet",
-            "search_users": "like_tweet",
-            "user_profile": "like_tweet",
-            "user_tweets": "like_tweet"
-        }
-        
-        if task_type not in endpoints:
-            raise ValueError(f"Invalid task type: {task_type}")
+        if task.type == "search_trending":
+            # Get trending topics
+            result = await client.get_trending_topics()
             
-        return endpoints[task_type]
+            # Save trends to database if requested
+            if input_params.get("save_to_db", False):
+                for trend in result.get('trends', []):
+                    db_trend = TrendingTopic(
+                        name=trend.get('name'),
+                        tweet_volume=trend.get('tweet_volume'),
+                        domain=trend.get('domain'),
+                        meta_data=trend.get('metadata', {}),
+                        timestamp=datetime.fromisoformat(result['timestamp']),
+                        account_id=worker.id
+                    )
+                    session.add(db_trend)
+                # Update task result
+                task.result = result
+            
+            return result
+
+        elif task.type == "search_tweets":
+            # Get search parameters
+            keyword = input_params.get("keyword")
+            count = input_params.get("count", 20)
+            cursor = input_params.get("cursor")
+            
+            if not keyword:
+                raise ValueError("Keyword is required for tweet search")
+            
+            # Search tweets
+            result = await client.get_topic_tweets(
+                keyword=keyword,
+                count=count,
+                cursor=cursor
+            )
+            
+            # Save tweets to database if requested
+            if input_params.get("save_to_db", False):
+                for tweet in result.get('tweets', []):
+                    db_tweet = TopicTweet(
+                        keyword=keyword,
+                        tweet_id=tweet.get('id'),
+                        tweet_data=tweet,
+                        timestamp=datetime.fromisoformat(result['timestamp']),
+                        account_id=worker.id
+                    )
+                    session.add(db_tweet)
+                # Update task result
+                task.result = result
+            
+            return result
+
+        elif task.type == "search_users":
+            # Get search parameters
+            keyword = input_params.get("keyword")
+            count = input_params.get("count", 20)
+            cursor = input_params.get("cursor")
+            
+            if not keyword:
+                raise ValueError("Keyword is required for user search")
+            
+            # Search users
+            result = await client.search_users(
+                keyword=keyword,
+                count=count,
+                cursor=cursor
+            )
+            
+            # Save users to database if requested
+            if input_params.get("save_to_db", False):
+                for user in result.get('users', []):
+                    db_user = SearchedUser(
+                        keyword=keyword,
+                        user_id=user.get('id'),
+                        user_data=user,
+                        timestamp=datetime.fromisoformat(result['timestamp']),
+                        account_id=worker.id
+                    )
+                    session.add(db_user)
+                # Update task result
+                task.result = result
+            
+            return result
+
+        elif task.type == "scrape_profile":
+            # Handle profile scraping logic and save complete profile data to MongoDB
+            username = input_params.get("username")
+            if not username:
+                raise ValueError("Username is required for scrape_profile task")
+
+            # Get user profile using UserByScreenName endpoint
+            variables = {
+                "screen_name": username,
+                "withSafetyModeUserFields": True
+            }
+            response = await client.graphql_request('UserByScreenName', variables)
+
+            # Extract user data from GraphQL response
+            user_data = response.get('data', {}).get('user', {}).get('result', {})
+            if not user_data:
+                raise ValueError(f"User {username} not found")
+
+            legacy = user_data.get('legacy', {})
+
+            # Import MongoDB client and get the scraped profiles collection
+            from ..mongodb_client import get_scraped_profiles_collection
+            collection = get_scraped_profiles_collection()
+
+            profile_doc = {
+                "username": username,
+                "screen_name": legacy.get('screen_name'),
+                "name": legacy.get('name'),
+                "description": legacy.get('description'),
+                "location": legacy.get('location'),
+                "url": legacy.get('url'),
+                "profile_image_url": legacy.get('profile_image_url_https'),
+                "profile_banner_url": legacy.get('profile_banner_url'),
+                "followers_count": legacy.get('followers_count'),
+                "following_count": legacy.get('friends_count'),
+                "tweets_count": legacy.get('statuses_count'),
+                "likes_count": legacy.get('favourites_count'),
+                "media_count": legacy.get('media_count'),
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat()
+            }
+
+            # Insert the document into MongoDB
+            await collection.insert_one(profile_doc)
+
+            return {
+                "username": username,
+                "profile_data": {
+                    "id": user_data.get('rest_id'),
+                    "screen_name": legacy.get('screen_name'),
+                    "name": legacy.get('name'),
+                    "description": legacy.get('description'),
+                    "location": legacy.get('location'),
+                    "url": legacy.get('url'),
+                    "profile_image_url": legacy.get('profile_image_url_https'),
+                    "profile_banner_url": legacy.get('profile_banner_url'),
+                    "metrics": {
+                        "followers_count": legacy.get('followers_count'),
+                        "following_count": legacy.get('friends_count'),
+                        "tweets_count": legacy.get('statuses_count'),
+                        "likes_count": legacy.get('favourites_count'),
+                        "media_count": legacy.get('media_count')
+                    },
+                    "verified": legacy.get('verified', False),
+                    "protected": legacy.get('protected', False),
+                    "created_at": legacy.get('created_at'),
+                    "professional": user_data.get('professional', {}),
+                    "verified_type": user_data.get('verified_type')
+                },
+                "mongo_saved": True
+            }
+
+        elif task.type == "scrape_tweets":
+            # Handle tweet scraping logic and store complete tweet data in MongoDB
+            username = input_params.get("username")
+            if not username:
+                raise ValueError("Username is required for scrape_tweets task")
+            
+            count = min(max(input_params.get("count", 15), 1), 100)
+            hours = min(max(input_params.get("hours", 24), 1), 168)
+            max_replies = min(max(input_params.get("max_replies", 7), 0), 20)
+            
+            # Get tweets without replies
+            tweets_data = await client.get_user_tweets(
+                username=username,
+                count=count,
+                hours=hours
+            )
+            
+            # Format tweets for returning to caller
+            formatted_tweets = []
+            for tweet in tweets_data.get("tweets", []):
+                formatted_tweet = {
+                    "id": tweet.get("id"),
+                    "text": tweet.get("text"),
+                    "created_at": tweet.get("created_at"),
+                    "tweet_url": tweet.get("tweet_url"),
+                    "author": tweet.get("author"),
+                    "metrics": tweet.get("metrics", {}),
+                    "media": tweet.get("media", []),
+                    "urls": tweet.get("urls", []),
+                    "retweeted_by": tweet.get("retweeted_by"),
+                    "retweeted_at": tweet.get("retweeted_at"),
+                    "quoted_tweet": tweet.get("quoted_tweet")
+                }
+                formatted_tweets.append(formatted_tweet)
+            
+            # Import MongoDB client and get the scraped tweets collection
+            from ..mongodb_client import get_scraped_tweets_collection
+            collection = get_scraped_tweets_collection()
+
+            # Build documents for each tweet; include additional metadata like username and the timestamp of scrapping
+            tweet_docs = []
+            scrapped_at = datetime.utcnow().isoformat()
