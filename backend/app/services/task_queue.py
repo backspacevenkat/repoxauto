@@ -69,8 +69,6 @@ class TaskQueue:
             # Initialize components in a transaction
             async with self.session_manager.transaction() as session:
                 # Load settings and initialize worker pool
-            async with self.session_manager.transaction() as session:
-                # Load settings and initialize worker pool
                 await self.worker_pool.load_settings(session)
                 
                 # Override settings if provided
