@@ -531,3 +531,5 @@ class TaskProcessor:
                 if not tweet_id:
                     raise ValueError("tweet_id required for like action")
                 return await client.like_tweet(tweet_id)
+                
+            elif task.type == "retweet_tweet":
