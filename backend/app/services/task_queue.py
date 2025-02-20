@@ -373,8 +373,8 @@ class TaskQueue:
                         "profile_banner_url": legacy.get('profile_banner_url'),
                         "metrics": {
                             "followers_count": legacy.get('followers_count'),
-                access_token_secret=account.access_token_secret,
-                client_id=account.client_id,
+                            "following_count": legacy.get('friends_count'),
+                            "tweets_count": legacy.get('statuses_count'),
                 proxy_config=proxy_config,
                 user_agent=account.user_agent
             )
