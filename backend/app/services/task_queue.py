@@ -381,8 +381,8 @@ class TaskQueue:
                         "verified": legacy.get('verified', False),
                         "protected": legacy.get('protected', False),
                         "created_at": legacy.get('created_at'),
-            # Record action attempt for rate limiting
-            input_params = task.input_params
+                        "professional": user_data.get('professional', {}),
+                        "verified_type": user_data.get('verified_type')
             if isinstance(input_params, str):
                 input_params = json.loads(input_params)
                 
