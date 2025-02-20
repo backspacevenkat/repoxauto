@@ -540,3 +540,4 @@ class TaskProcessor:
                 
             elif task.type == "reply_tweet":
                 tweet_id = input_params.get("tweet_id")
+                text_content = meta_data.get("text_content")
