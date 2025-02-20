@@ -780,17 +780,4 @@ class TaskProcessor:
             "create_tweet": "create_tweet",
             "follow_user": "follow_user",
             "send_dm": "send_dm",
-            "update_profile": "update_profile",
-            "scrape_profile": "like_tweet",
-            "scrape_tweets": "like_tweet",
-            "search_trending": "like_tweet",
-            "search_tweets": "like_tweet",
-            "search_users": "like_tweet",
-            "user_profile": "like_tweet",
-            "user_tweets": "like_tweet"
-        }
-        
-        if task_type not in endpoints:
-            raise ValueError(f"Invalid task type: {task_type}")
-            
-        return endpoints[task_type]
+            "update_
