@@ -559,3 +559,4 @@ class TaskProcessor:
                 return await client.quote_tweet(tweet_id, text_content, media)
                 
             elif task.type == "create_tweet":
+                text_content = meta_data.get("text_content")
