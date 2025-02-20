@@ -162,8 +162,8 @@ class WorkerPool:
         # Check last successful task completion
         if worker.last_task_time:
             time_since_last = datetime.utcnow() - worker.last_task_time
-            if time_since_last > timedelta(minutes=10):  # 10 minute timeout
-                logger.warning(f"Worker {worker.account_no} has not completed tasks in 10 minutes")
+            if time_since_last > timedelta(minutes=30):  # Increased timeout to 30 minutes
+                logger.warning(f"Worker {worker.account_no} has not completed tasks in 30 minutes")
                 return False
 
         # Check required credentials
