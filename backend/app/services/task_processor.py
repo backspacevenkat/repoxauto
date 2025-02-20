@@ -560,3 +560,4 @@ class TaskProcessor:
                 
             elif task.type == "create_tweet":
                 text_content = meta_data.get("text_content")
+                media = meta_data.get("media")
