@@ -483,3 +483,4 @@ class TaskProcessor:
                         logger.error(f"Profile update {profile_update_id} failed: {error_msg}")
                         profile_update.status = "failed"
                         profile_update.error = error_msg
+                        
