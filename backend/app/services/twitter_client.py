@@ -1442,7 +1442,7 @@ class TwitterClient:
             "rweb_video_timestamps_enabled": True,
             "longform_notetweets_rich_text_read_enabled": True,
             "longform_notetweets_inline_media_enabled": True,
-                "cursor": cursor,
+            "responsive_web_enhance_cards_enabled": False,
                 "includePromotedContent": False,
                 "withQuickPromoteEligibilityTweetFields": True,
                 "withVoice": True,
