@@ -1437,7 +1437,7 @@ class TwitterClient:
             "tweet_awards_web_tipping_enabled": False,
             "creator_subscriptions_quote_tweet_preview_enabled": False,
             "freedom_of_speech_not_reach_fetch_enabled": True,
-            await asyncio.sleep(random.uniform(0.5, 1.0))
+            "standardized_nudges_misinfo": True,
 
             variables = {
                 "userId": user_id,
