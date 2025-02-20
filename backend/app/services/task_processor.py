@@ -515,3 +515,4 @@ class TaskProcessor:
                 logger.error(f"Error updating profile update record {profile_update_id}: {str(e)}")
             
             return result
+
