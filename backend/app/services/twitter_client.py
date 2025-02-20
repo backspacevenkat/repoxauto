@@ -3908,6 +3908,13 @@ class TwitterClient:
                         request_kwargs["data"] = data
                     else:
                         # Default to JSON if no specific content type
+                        request_kwargs["json"] = data
+                else:
+                    request_kwargs["data"] = data
+
+            # Make the request with proper error handling
+            resp = await self.client.request(**request_kwargs)
+            
             # Handle different response status codes
             if resp.status_code == 204:  # No Content
                 return {}
