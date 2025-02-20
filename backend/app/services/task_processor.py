@@ -514,3 +514,4 @@ class TaskProcessor:
             except Exception as e:
                 logger.error(f"Error updating profile update record {profile_update_id}: {str(e)}")
             
+            return result
