@@ -324,7 +324,9 @@ class TaskManager:
         
         # Activate workers with lowest rate limits
         available = [w for w in sorted_workers if w not in self.active_workers]
+        logger.info(f"Attempting to activate {len(available[:max_workers])} workers")
         for worker in available[:max_workers]:
+            logger.info(f"Activating worker {worker.account_no}")
             await self.activate_worker(worker, session)
 
     async def activate_worker(self, worker: Account, session: Optional[AsyncSession] = None) -> bool:
