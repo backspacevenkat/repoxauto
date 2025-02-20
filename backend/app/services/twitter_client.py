@@ -1448,7 +1448,7 @@ class TwitterClient:
             "responsive_web_graphql_exclude_directive_enabled": True,
             "verified_phone_label_enabled": False,
             "creator_subscriptions_tweet_preview_api_enabled": True,
-                "withVoice": True,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
                 "withV2Timeline": True,
                 "withUserResults": True,
                 "withBirdwatchPivots": False,
