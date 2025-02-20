@@ -1441,7 +1441,7 @@ class TwitterClient:
             "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
             "rweb_video_timestamps_enabled": True,
             "longform_notetweets_rich_text_read_enabled": True,
-                "count": count,
+            "longform_notetweets_inline_media_enabled": True,
                 "cursor": cursor,
                 "includePromotedContent": False,
                 "withQuickPromoteEligibilityTweetFields": True,
