@@ -490,3 +490,4 @@ class TaskProcessor:
                             # Update rate limit info in database
                             rate_limit_info = {
                                 "reset": (datetime.utcnow() + timedelta(minutes=15)).isoformat(),
+                                "remaining": 0,
