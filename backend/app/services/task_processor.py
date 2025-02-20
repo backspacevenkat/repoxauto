@@ -128,7 +128,6 @@ class TaskProcessor:
                                 session.add(worker)
                                 
                         session.add(task)
-                        
                 except asyncio.TimeoutError:
                     logger.error("Task processing timed out")
                     for task in task_list:
@@ -141,9 +140,9 @@ class TaskProcessor:
                     for worker in available_workers:
                         self.worker_pool.deactivate_worker(worker)
 
-                # Handle tasks that need reassignment
-                if tasks_to_reassign:
-                    await self._reassign_tasks(session, tasks_to_reassign, endpoint)
+                    # Handle tasks that need reassignment
+                    if tasks_to_reassign:
+                        await self._reassign_tasks(session, tasks_to_reassign, endpoint)
 
         except Exception as e:
             logger.error(f"Error processing task group: {str(e)}")
