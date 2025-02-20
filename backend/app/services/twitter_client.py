@@ -1526,8 +1526,8 @@ class TwitterClient:
             "rweb_video_timestamps_enabled": True,
             "longform_notetweets_rich_text_read_enabled": True,
             "longform_notetweets_inline_media_enabled": True,
-            # Extract tweets from response
-            tweets = []
+            "responsive_web_enhance_cards_enabled": False,
+            "premium_content_api_read_enabled": False,
             next_cursor = None
 
             # Try multiple paths to find timeline data
