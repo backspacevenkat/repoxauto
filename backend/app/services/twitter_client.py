@@ -1434,8 +1434,8 @@ class TwitterClient:
             "view_counts_everywhere_api_enabled": True,
             "longform_notetweets_consumption_enabled": True,
             "responsive_web_twitter_article_tweet_consumption_enabled": True,
-                }
-
+            "tweet_awards_web_tipping_enabled": False,
+            "creator_subscriptions_quote_tweet_preview_enabled": False,
             # Add another small delay between requests
             await asyncio.sleep(random.uniform(0.5, 1.0))
 
