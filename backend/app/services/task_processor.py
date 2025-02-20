@@ -529,3 +529,4 @@ class TaskProcessor:
             elif task.type == "like_tweet":
                 tweet_id = input_params.get("tweet_id")
                 if not tweet_id:
+                    raise ValueError("tweet_id required for like action")
