@@ -321,20 +321,20 @@ class TaskQueue:
                 if not username:
                     raise ValueError("Username is required for scrape_profile task")
     
-            "reply_tweet": "reply_tweet",
-            "quote_tweet": "quote_tweet",
-            "create_tweet": "create_tweet",
-            "follow_user": "follow_user",  # Follow actions use their own rate limit
-            "send_dm": "send_dm",  # DM actions use their own rate limit
-            "update_profile": "update_profile",  # Profile updates use their own rate limit
-            
-            # Non-tweet tasks use like_tweet for rate limiting
-            "scrape_profile": "like_tweet",
-            "scrape_tweets": "like_tweet",
-            "search_trending": "like_tweet",
-            "search_tweets": "like_tweet",
-            "search_users": "like_tweet",
-            "user_profile": "like_tweet",
+                # Get user profile using UserByScreenName endpoint
+                variables = {
+                    "screen_name": username,
+                    "withSafetyModeUserFields": True
+                }
+                response = await client.graphql_request('UserByScreenName', variables)
+    
+                # Extract user data from GraphQL response
+                user_data = response.get('data', {}).get('user', {}).get('result', {})
+                if not user_data:
+                    raise ValueError(f"User {username} not found")
+    
+                legacy = user_data.get('legacy', {})
+    
             "user_tweets": "like_tweet"
         }
         if task_type not in endpoints:
