@@ -461,3 +461,4 @@ class TaskProcessor:
                 logger.error(f"Failed to update profile for account {account_no}")
                 logger.error(f"Error: {error_msg}")
                 
+                # Check for rate limit errors
