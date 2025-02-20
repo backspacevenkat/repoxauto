@@ -1452,7 +1452,7 @@ class TwitterClient:
             "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
             "premium_content_api_read_enabled": False,
             "communities_web_enable_tweet_community_results_fetch": True,
-                "withReplyCount": True,
+            "c9s_tweet_anatomy_moderator_badge_enabled": True,
                 "withTweetQuoteCount": True,
                 "withTweetResult": True,
                 "withHighlightedLabel": True,
