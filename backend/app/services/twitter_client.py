@@ -1432,7 +1432,7 @@ class TwitterClient:
             "responsive_web_edit_tweet_api_enabled": True,
             "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
             "view_counts_everywhere_api_enabled": True,
-                    'username': username,
+            "longform_notetweets_consumption_enabled": True,
                     'error': str(e)
                 }
 
