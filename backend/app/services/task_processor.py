@@ -88,32 +88,32 @@ class TaskProcessor:
 
                     # Handle results
                     for task, result in zip(task_list, results):
-                if result is None:
-                    tasks_to_reassign.append(task)
-                    continue
+                        if result is None:
+                            tasks_to_reassign.append(task)
+                            continue
 
-                # Check if it's an exception but the request actually succeeded
-                if isinstance(result, Exception):
-                    error_str = str(result)
-                    if "Username and password must be escaped" in error_str and "HTTP/1.1 200 OK" in error_str:
-                        # This is just a proxy encoding warning, not a real error
-                        # The request succeeded (200 OK)
-                        task.status = "completed"
-                        task.result = {"success": True, "message": "Task completed successfully"}
-                        task.completed_at = datetime.utcnow()
-                        
-                        # Update worker's last task time and metrics
-                        worker = await session.get(Account, task.worker_account_id)
-                        if worker:
-                            worker.last_task_time = datetime.utcnow()
-                            worker.total_tasks_completed += 1
-                            session.add(worker)
-                    else:
-                        # Real error occurred
-                        logger.error(f"Error processing task {task.id}: {error_str}")
-                        task.status = "failed"
-                        task.error = error_str
-                        task.retry_count += 1
+                        # Check if it's an exception but the request actually succeeded
+                        if isinstance(result, Exception):
+                            error_str = str(result)
+                            if "Username and password must be escaped" in error_str and "HTTP/1.1 200 OK" in error_str:
+                                # This is just a proxy encoding warning, not a real error
+                                # The request succeeded (200 OK)
+                                task.status = "completed"
+                                task.result = {"success": True, "message": "Task completed successfully"}
+                                task.completed_at = datetime.utcnow()
+                                
+                                # Update worker's last task time and metrics
+                                worker = await session.get(Account, task.worker_account_id)
+                                if worker:
+                                    worker.last_task_time = datetime.utcnow()
+                                    worker.total_tasks_completed += 1
+                                    session.add(worker)
+                            else:
+                                # Real error occurred
+                                logger.error(f"Error processing task {task.id}: {error_str}")
+                                task.status = "failed"
+                                task.error = error_str
+                                task.retry_count += 1
                         task.completed_at = datetime.utcnow()
                 elif isinstance(result, Exception):
                     logger.error(f"Error processing task {task.id}: {str(result)}")
