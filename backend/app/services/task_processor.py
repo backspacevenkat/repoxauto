@@ -485,3 +485,4 @@ class TaskProcessor:
                         profile_update.error = error_msg
                         
                         # Check for rate limit errors
+                        if "429" in error_msg or "rate limit" in error_msg.lower():
