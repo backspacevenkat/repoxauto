@@ -11,12 +11,12 @@ from ..models.action import Action
 from ..models.account import Account, ValidationState
 from ..models.search import TrendingTopic, TopicTweet, SearchedUser
 from ..models.profile_update import ProfileUpdate
+from .session_manager import SessionManager
+from .worker_pool import WorkerPool
+from .task_processor import TaskProcessor
 from .rate_limiter import RateLimiter
 from .twitter_client import TwitterClient
 
-logger = logging.getLogger(__name__)
-
-class TaskQueue:
     def __init__(self, session_maker):
         self.session_manager = SessionManager(session_maker)
         self.rate_limiter = RateLimiter(session_maker)
