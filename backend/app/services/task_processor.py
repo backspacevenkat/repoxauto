@@ -475,3 +475,4 @@ class TaskProcessor:
                 profile_update = profile_update.scalar_one_or_none()
                 if profile_update:
                     if result.get("success"):
+                        logger.info(f"Profile update {profile_update_id} completed successfully")
