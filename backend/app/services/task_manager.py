@@ -722,7 +722,11 @@ class TaskManager:
         if not self.active_workers:
             await self.activate_initial_workers(session)
             if not self.active_workers:
-                raise ValueError("Failed to activate any workers")
+                logger.warning("Failed to activate any workers on initial attempt, retrying...")
+                await asyncio.sleep(5)  # Wait 5 seconds before retrying
+                await self.activate_initial_workers(session)
+                if not self.active_workers:
+                    raise ValueError("Failed to activate any workers after retry")
         
         # Start queue if stopped
         if self.queue_status == QueueStatus.STOPPED:
