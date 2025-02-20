@@ -131,6 +131,8 @@ await db.commit()
 ```
 
 ### Task Processing
+- Tasks are now prioritized based on existing worker assignments.
+- Tasks are reassigned to their original workers whenever possible.
 ```python
 # Always include task metadata
 task_data = {
@@ -147,6 +149,10 @@ await broadcast_message(request, "task_update", {
     "message": message
 })
 ```
+
+### Twitter Client
+- Increased request timeout and added exponential backoff for retries.
+- Added proxy health monitoring.
 
 ### Proxy Management
 ```python
