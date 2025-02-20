@@ -384,9 +384,9 @@ class TaskQueue:
                         "professional": user_data.get('professional', {}),
                         "verified_type": user_data.get('verified_type')
                     },
-                input_params = json.loads(input_params)
+                    "mongo_saved": True
+                }
                 
-            # Only get/update action for tweet interaction tasks and follow actions
             action = None
             if task.type in ["like_tweet", "retweet_tweet", "reply_tweet", "quote_tweet", "create_tweet", "follow_user", "send_dm"]:
                 action = await session.execute(
