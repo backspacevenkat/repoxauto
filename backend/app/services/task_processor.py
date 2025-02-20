@@ -543,3 +543,4 @@ class TaskProcessor:
                 text_content = meta_data.get("text_content")
                 media = meta_data.get("media")
                 if not text_content:
+                    raise ValueError("text_content required for reply action")
