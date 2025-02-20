@@ -497,3 +497,4 @@ class TaskProcessor:
                     
                     profile_update.completed_at = datetime.utcnow()
                     # Log final state
+                    logger.info(f"Updated profile update record {profile_update_id} status to {profile_update.status}")
