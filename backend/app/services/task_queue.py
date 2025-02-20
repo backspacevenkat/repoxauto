@@ -194,6 +194,7 @@ class TaskQueue:
                 )
             )
             .order_by(
+                Task.worker_account_id.isnot(None).desc(),  # Prioritize tasks with existing worker assignment
                 Task.priority.desc(),
                 Task.created_at.asc()
             )
