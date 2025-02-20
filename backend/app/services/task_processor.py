@@ -504,3 +504,4 @@ class TaskProcessor:
                         from ..main import app
                         if hasattr(app.state, 'connection_manager'):
                             await app.state.connection_manager.broadcast({
+                                "type": "profile_update_status",
