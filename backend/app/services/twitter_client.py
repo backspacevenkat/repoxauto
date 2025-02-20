@@ -1511,7 +1511,7 @@ class TwitterClient:
             "c9s_tweet_anatomy_moderator_badge_enabled": True,
             "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
             "responsive_web_grok_analyze_post_followups_enabled": False,
-                "withClientEventToken": False,
+            "responsive_web_grok_share_attachment_enabled": True,
                 "withBirdwatchPivots": False,
                 "withAuxiliaryUserLabels": False,
                 "referrer": "profile",
