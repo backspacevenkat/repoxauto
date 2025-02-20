@@ -1055,6 +1055,27 @@ class TwitterClient:
                         raise ValueError(f"Invalid port: {str(e)}")
                     
                     # Configure transport with proxy
+                    # Test proxy URL format
+                    parsed = urlparse(self.proxy_url)
+                    if not parsed.scheme or not parsed.hostname or not parsed.port:
+                        raise ValueError(f"Invalid proxy URL format: missing scheme, hostname, or port")
+                    
+                    # Validate proxy URL components
+                    if parsed.scheme not in ['http', 'https']:
+                        raise ValueError(f"Invalid proxy scheme: {parsed.scheme}")
+                    
+                    if not parsed.username or not parsed.password:
+                        raise ValueError("Missing proxy credentials")
+                    
+                    # Ensure port is valid
+                    try:
+                        port = int(parsed.port)
+                        if port < 1 or port > 65535:
+                            raise ValueError(f"Invalid port number: {port}")
+                    except (TypeError, ValueError) as e:
+                        raise ValueError(f"Invalid port: {str(e)}")
+                    
+                    # Configure transport with proxy
                     # First properly encode the proxy URL components
                     parsed = urlparse(self.proxy_url)
                     encoded_username = quote_plus(parsed.username or '')
@@ -1079,466 +1100,445 @@ class TwitterClient:
                     logger.error(f"Failed to configure proxy for account {self.account_no}: {str(e)}")
                     self.proxy_url = None  # Clear invalid proxy URL
                     raise ValueError(f"Failed to configure proxy: {str(e)}")
+import logging
+import httpx
+import json
+import time
+import asyncio
+import ssl
+import random
+import uuid
+import string
+import os
+import mimetypes
+import hmac
+import hashlib
+import base64
+from requests_oauthlib import OAuth1
+from typing import Optional, Dict, Any, List
+from datetime import datetime, timedelta, timezone
+from urllib.parse import quote_plus, quote, urljoin, urlparse, urlencode, parse_qsl
 
-            # Initialize client directly without test request
-            self.client = httpx.AsyncClient(**client_config)
-            logger.info(f"Successfully initialized client for account {self.account_no}")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize client: {str(e)}")
-            if self.client:
-                try:
-                    await self.client.aclose()
-                except:
-                    pass
-                self.client = None
-            raise Exception(f"Failed to initialize HTTP client: {str(e)}")
+def construct_proxy_url(username: str, password: str, host: str, port: str) -> str:
+    """Construct a proxy URL with proper encoding"""
+    encoded_username = quote_plus(str(username))
+    encoded_password = quote_plus(str(password))
+    return f"http://{encoded_username}:{encoded_password}@{host}:{port}"
 
-    async def _make_request(
+def generate_nonce(length: int = 32) -> str:
+    """Generate a random nonce string"""
+    return ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
+
+def generate_oauth_signature(
+    method: str,
+    url: str,
+    params: Dict[str, str],
+    consumer_secret: str,
+    access_token_secret: str
+) -> str:
+    """Generate OAuth 1.0a signature"""
+    # Ensure all values are strings
+    params = {str(k): str(v) for k, v in params.items()}
+    
+    # Create parameter string
+    sorted_params = sorted(params.items())
+    param_string = '&'.join([
+        f"{quote(k, safe='')}"
+        f"="
+        f"{quote(v, safe='')}"
+        for k, v in sorted_params
+    ])
+
+    # Create signature base string
+    signature_base = '&'.join([
+        quote(method.upper(), safe=''),
+        quote(url, safe=''),
+        quote(param_string, safe='')
+    ])
+
+    # Create signing key
+    signing_key = f"{quote(str(consumer_secret), safe='')}&{quote(str(access_token_secret or ''), safe='')}"
+
+    # Calculate HMAC-SHA1 signature
+    hashed = hmac.new(
+        signing_key.encode('utf-8'),
+        signature_base.encode('utf-8'),
+        hashlib.sha1
+    )
+
+    return base64.b64encode(hashed.digest()).decode('utf-8')
+
+logger = logging.getLogger(__name__)
+
+class TwitterClient:
+    def __init__(
         self,
-        method: str,
-        url: str, 
-        params: Optional[Dict] = None,
-        json_data: Optional[Dict] = None,
-        headers: Optional[Dict] = None,
-        files: Optional[Dict] = None,
-        data: Optional[Dict] = None
-    ) -> Dict:
-        """
-        Fixed core request method with proper OAuth handling
-        """
-        try:
-            # Initialize client if needed
-            if not self.client or self.client.is_closed:
-                await self._init_client()
-            
-            if not self.client:
-                raise Exception("Failed to initialize HTTP client")
-
-            # Convert string parameters to UTF-8
-            if params:
-                params = {
-                    k: v.encode('utf-8').decode('utf-8') if isinstance(v, str) else v 
-                    for k, v in params.items()
-                }
-
-            # Select appropriate headers based on URL and request type
-            request_headers = {}
-            
-            if 'upload.twitter.com' in url:
-                # For media uploads, only oauth_* parameters in signature
-                oauth_params = {
-                    'oauth_consumer_key': self.consumer_key,
-                    'oauth_nonce': generate_nonce(),
-                    'oauth_signature_method': 'HMAC-SHA1',
-                    'oauth_timestamp': str(int(time.time())),
-                    'oauth_token': self.access_token,
-                    'oauth_version': '1.0'
-                }
-                
-                signature = generate_oauth_signature(
-                    method,
-                    url,
-                    oauth_params,  # Only oauth params for signature
-                    self.consumer_secret,
-                    self.access_token_secret
-                )
-                oauth_params['oauth_signature'] = signature
-                
-                auth_header = 'OAuth ' + ', '.join(
-                    f'{quote(k, safe="~")}="{quote(v, safe="~")}"'
-                    for k, v in sorted(oauth_params.items())
-                )
-                
-                request_headers = {
-                    'Authorization': auth_header,
-                    'Accept': 'application/json'
-                }
-                
-            elif 'api.twitter.com/2/' in url:
-                # API v2 endpoints with OAuth 1.0a
-                oauth_params = {
-                    'oauth_consumer_key': self.consumer_key,
-                    'oauth_nonce': generate_nonce(),
-                    'oauth_signature_method': 'HMAC-SHA1',
-                    'oauth_timestamp': str(int(time.time())),
-                    'oauth_token': self.access_token,
-                    'oauth_version': '1.0'
-                }
-                
-                # For API v2, only sign OAuth params
-                signature = generate_oauth_signature(
-                    method,
-                    url,
-                    oauth_params,
-                    self.consumer_secret,
-                    self.access_token_secret
-                )
-                oauth_params['oauth_signature'] = signature
-                
-                auth_header = 'OAuth ' + ', '.join(
-                    f'{quote(k, safe="~")}="{quote(v, safe="~")}"'
-                    for k, v in sorted(oauth_params.items())
-                )
-                
-                request_headers = {
-                    'Authorization': auth_header,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-                
-            elif 'api.twitter.com/1.1/' in url:
-                # API v1.1 endpoints with OAuth 1.0a including params
-                oauth_params = {
-                    'oauth_consumer_key': self.consumer_key,
-                    'oauth_nonce': generate_nonce(),
-                    'oauth_signature_method': 'HMAC-SHA1',
-                    'oauth_timestamp': str(int(time.time())),
-                    'oauth_token': self.access_token,
-                    'oauth_version': '1.0'
-                }
-                
-                # Combine OAuth params with request params for signature
-                all_params = {**oauth_params}
-                if params:
-                    all_params.update(params)
-                if json_data:
-                    # Flatten nested JSON for OAuth signature
-                    flat_data = {}
-                    for k, v in json_data.items():
-                        if isinstance(v, dict):
-                            for sub_k, sub_v in v.items():
-                                flat_data[f"{k}.{sub_k}"] = str(sub_v)
-                        else:
-                            flat_data[k] = str(v)
-                    all_params.update(flat_data)
-                    
-                signature = generate_oauth_signature(
-                    method,
-                    url,
-                    all_params,
-                    self.consumer_secret,
-                    self.access_token_secret
-                )
-                oauth_params['oauth_signature'] = signature
-                
-                auth_header = 'OAuth ' + ', '.join(
-                    f'{quote(k, safe="~")}="{quote(v, safe="~")}"'
-                    for k, v in sorted(oauth_params.items())
-                )
-                
-                request_headers = {
-                    'Authorization': auth_header,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-                
-            elif 'twitter.com/i/api/graphql' in url:
-                request_headers = self.graphql_headers.copy()
-
-            # Add dynamic headers
-            request_headers.update({
-                'User-Agent': self.user_agent,
-                'x-client-uuid': str(uuid.uuid4()),
-                'accept-language': random.choice([
-                    'en-US,en;q=0.9',
-                    'en-GB,en;q=0.9',
-                    'en-CA,en;q=0.9'
-                ])
-            })
-
-            # Add any custom headers
-            if headers:
-                request_headers.update(headers)
-
-            # Prepare request kwargs
-            request_kwargs = {
-                'method': method,
-                'url': url,
-                'params': params,
-                'headers': request_headers,
-                'follow_redirects': True
-            }
-
-            # Handle files and data appropriately
-            if files:
-                if data:
-                    # Combine files and form data
-                    multipart_data = {}
-                    for key, value in data.items():
-                        multipart_data[key] = (None, str(value))
-                    multipart_data.update(files)
-                    request_kwargs['files'] = multipart_data
-                else:
-                    request_kwargs['files'] = files
-                # Remove content-type for multipart
-                if 'Content-Type' in request_kwargs['headers']:
-                    del request_kwargs['headers']['Content-Type']
-            elif data:
-                request_kwargs['data'] = data
-            elif json_data:
-                request_kwargs['json'] = json_data
-
-            # Make request with retries
-            MAX_RETRIES = 3
-            retry_count = 0
-            
-            while retry_count < MAX_RETRIES:
-                try:
-                    response = await self.client.request(**request_kwargs)
-                    
-                    # Handle rate limiting
-                    if response.status_code == 429:
-                        retry_after = int(response.headers.get('retry-after', '60'))
-                        logger.warning(f'Rate limited. Waiting {retry_after} seconds...')
-                        await asyncio.sleep(retry_after)
-                        retry_count += 1
-                        continue
-
-                    # Handle auth errors
-                    if response.status_code in (401, 403):
-                        logger.error(f'Authentication failed: {response.text}')
-                        raise Exception('Authentication failed - check credentials')
-
-                    # Handle successful responses
-                    if response.status_code == 204:  # No Content
-                        return {}
-                        
-                    response.raise_for_status()
-                    
-                    try:
-                        return response.json()
-                    except json.JSONDecodeError:
-                        if response.content:
-                            logger.warning(f'Could not decode JSON response: {response.content[:200]}')
-                        return {}
-
-                except httpx.TimeoutException as e:
-                    logger.warning(f'Request timeout (attempt {retry_count + 1}/{MAX_RETRIES}): {str(e)}')
-                    retry_count += 1
-                    if retry_count < MAX_RETRIES:
-                        delay = (2 ** retry_count) + random.uniform(0, 1)  # Exponential backoff with jitter
-                        logger.info(f"Waiting {delay:.2f} seconds before retrying...")
-                        await asyncio.sleep(delay)
-                    continue
-                    
-                except Exception as e:
-                    logger.error(f'Request error: {str(e)}')
-                    raise
-
-            raise Exception(f'Request failed after {MAX_RETRIES} retries')
-
-        except Exception as e:
-            logger.error(f'Error in _make_request: {str(e)}')
-            raise
-
-    async def _add_request_delay(self):
-        """Add a small random delay between requests to avoid rate limits"""
-        delay = random.uniform(0.5, 2.0)
-        await asyncio.sleep(delay)
-
-    async def _handle_rate_limit(self, retry_after: int = 60):
-        """Handle rate limiting"""
-        logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
-        await asyncio.sleep(retry_after)
-
-    async def graphql_request(
-        self,
-        endpoint_name: str,
-        variables: Dict,
-        features: Optional[Dict] = None
-    ) -> Dict:
-        """Make a GraphQL request with updated headers and error handling"""
-        endpoint_id = self.GRAPHQL_ENDPOINTS.get(endpoint_name)
-        if not endpoint_id:
-            raise ValueError(f"Unknown GraphQL endpoint: {endpoint_name}")
-
-        # Add small random delay to simulate human behavior
-        await asyncio.sleep(random.uniform(1.5, 4.0))
+        account_no: str,
+        auth_token: str,
+        ct0: str,
+        consumer_key: str = None,
+        consumer_secret: str = None,
+        bearer_token: str = None,
+        access_token: str = None,
+        access_token_secret: str = None,
+        client_id: str = None,
+        proxy_config: Optional[Dict[str, str]] = None,
+        user_agent: Optional[str] = None
+    ):
+        """Initialize TwitterClient with authentication and configuration"""
+        # Initialize instance variables
+        self.account_no = account_no
+        self.auth_token = auth_token
+        self.ct0 = ct0
+        self.consumer_key = consumer_key
+        self.consumer_secret = consumer_secret
+        self.bearer_token = bearer_token
+        self.access_token = access_token
+        self.access_token_secret = access_token_secret
+        self.client_id = client_id
+        self.proxy_config = proxy_config
         
-        try:
-            base_url = "https://x.com/i/api/graphql"
-            
-            # Update headers with new transaction ID and client UUID
-            headers = self.graphql_headers.copy()
-            headers.update({
-                'x-client-transaction-id': f'client-tx-{uuid.uuid4()}',
-                'x-client-uuid': str(uuid.uuid4())
-            })
-
-            if endpoint_name in ['FavoriteTweet', 'CreateRetweet', 'CreateTweet']:
-                # For mutations
-                json_data = {
-                    "variables": variables,
-                    "features": features or self.DEFAULT_FEATURES,
-                    "queryId": endpoint_id
-                }
-                
-                response = await self._make_request(
-                    "POST",
-                    f"{base_url}/{endpoint_id}/{endpoint_name}",
-                    json_data=json_data,
-                    headers=headers
-                )
-            else:
-                # For queries
-                variables_json = json.dumps(variables, ensure_ascii=False)
-                features_json = json.dumps(features or self.DEFAULT_FEATURES, ensure_ascii=False)
-                
-                response = await self._make_request(
-                    "GET",
-                    f"{base_url}/{endpoint_id}/{endpoint_name}",
-                    params={
-                        "variables": variables_json,
-                        "features": features_json
-                    },
-                    headers=headers
-                )
-            
-            if 'errors' in response:
-                error_msg = response['errors'][0].get('message', 'Unknown error')
-                logger.error(f"GraphQL error: {error_msg}")
-                raise Exception(f"GraphQL error: {error_msg}")
-                
-            return response
-
-        except Exception as e:
-            logger.error(f"GraphQL request failed: {str(e)}")
-            raise
-
-    async def get_user_tweets(
-        self,
-        username: str,
-        count: int = 40,
-        hours: Optional[int] = None,
-        max_replies: Optional[int] = None,
-        cursor: Optional[str] = None,
-        include_replies: bool = True
-    ) -> Dict:
-        """Get user tweets using GraphQL"""
-        logger.info(f"Getting tweets for user {username}")
-        try:
-            # Add rate limiting delay
-            await asyncio.sleep(random.uniform(1.0, 2.0))
-
-            # First get user ID from username
+        # Initialize HTTP client
+        self.client = None
+        
+        # Configure proxy if provided
+        self.proxy_url = None
+        if proxy_config:
             try:
-                user_id = await self.get_user_id(username)
-                if not user_id:
-                    raise Exception(f"Could not get user ID for {username}")
-                logger.info(f"Found user ID {user_id} for {username}")
+                # Extract proxy details with correct keys
+                username = proxy_config.get('proxy_username')
+                password = proxy_config.get('proxy_password')
+                host = proxy_config.get('proxy_url')
+                port = proxy_config.get('proxy_port')
+
+                # Validate all required fields
+                if not all([username, password, host, port]):
+                    missing = []
+                    if not username: missing.append('proxy_username')
+                    if not password: missing.append('proxy_password')
+                    if not host: missing.append('proxy_url')
+                    if not port: missing.append('proxy_port')
+                    logger.error(f"Missing proxy configuration fields: {', '.join(missing)}")
+                    raise ValueError(f"Missing proxy configuration: {', '.join(missing)}")
+
+                # Construct proxy URL
+                self.proxy_url = construct_proxy_url(
+                    username=str(username),
+                    password=str(password),
+                    host=str(host),
+                    port=str(port)
+                )
+
+                # Validate constructed URL
+                parsed = urlparse(self.proxy_url)
+                if not parsed.scheme or not parsed.hostname or not parsed.port:
+                    raise ValueError("Invalid proxy URL format after construction")
+
+                logger.info(f"Successfully configured proxy for account {account_no}")
+                
             except Exception as e:
-                logger.error(f"Error getting user ID for {username}: {str(e)}")
-                return {
-                    'tweets': [],
-                    'next_cursor': None,
-                    'username': username,
-                    'error': str(e)
-                }
+                logger.error(f"Failed to configure proxy for account {account_no}: {str(e)}")
+                self.proxy_url = None
+        
+        # Set default user agent if none provided
+        self.user_agent = user_agent or (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/91.0.4472.124 Safari/537.36"
+        )
+        
+        # Initialize headers
+        self.headers = {
+            'authorization': f'Bearer {self.bearer_token}',
+            'x-twitter-auth-type': 'OAuth2Session',
+            'x-twitter-client-language': 'en',
+            'x-twitter-active-user': 'yes',
+            'content-type': 'application/json',
+            'x-csrf-token': self.ct0,
+            'cookie': f'auth_token={self.auth_token}; ct0={self.ct0}'
+        }
+        
+        # API v2 specific headers
+        self.api_v2_headers = {
+            'authorization': f'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
+            'content-type': 'application/json',
+            'cookie': f'auth_token={self.auth_token}; ct0={self.ct0}',
+            'x-csrf-token': self.ct0,
+            'x-twitter-auth-type': 'OAuth2Session',
+            'x-twitter-client-language': 'en',
+            'x-twitter-active-user': 'yes'
+        }
+        
+        # GraphQL specific headers
+        self.graphql_headers = {
+            'authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
+            'x-csrf-token': self.ct0, 
+            'cookie': f'auth_token={self.auth_token}; ct0={self.ct0}',
+            'content-type': 'application/json',
+            'x-twitter-auth-type': 'OAuth2Session',
+            'x-twitter-client-language': 'en',
+            'x-twitter-active-user': 'yes',
+            'Referer': 'https://x.com/',
+            'User-Agent': self.user_agent,
+            'accept': '*/*',
+            'Accept': '*/*'
+        }
 
-            # Add another small delay between requests
-            await asyncio.sleep(random.uniform(0.5, 1.0))
-
-            variables = {
-                "userId": user_id,
-                "count": count,
-                "cursor": cursor,
-                "includePromotedContent": False,
-                "withQuickPromoteEligibilityTweetFields": True,
-                "withVoice": True,
-                "withV2Timeline": True,
-                "withBirdwatchPivots": False,
-                "withVoice": True,
-                "withV2Timeline": True,
-                "withUserResults": True,
-                "withBirdwatchPivots": False,
-                "withReplyCount": True,
-                "withTweetQuoteCount": True,
-                "withTweetResult": True,
-                "withHighlightedLabel": True,
-                "withArticleRichContentState": False,
-                "withInternalReplyCount": True,
-                "withReplyContext": True,
-                "withTimelinesCount": True,
-                "withSuperFollowsTweetFields": True,
-                "withSuperFollowsUserFields": True,
-                "withUserResults": True,
-                "withBirdwatchPivots": False,
-                "withReplyCount": True,
-                "withVoice": True,
-                "withDownvotePerspective": False,
-                "withReactionsMetadata": False,
-                "withReactionsPerspective": False,
-                "withSuperFollowsTweetFields": True,
-                "withUserResults": True,
-                "withBirdwatchPivots": False,
-                "withReplyCount": True,
-                "withTweetQuoteCount": True,
-                "withTweetResult": True,
-                "withTweetResultByRestId": True,
-                "withTweetResultByTweetId": True,
-                "withTweetBookmarkCount": True,
-                "withTweetImpression": True,
-                "withTweetView": True,
-                "withThreads": True,
-                "withConversationControl": True,
-                "withArticleRichContentState": False,
-                "withBirdwatchPivots": False,
-                "withHighlightedLabel": True,
-                "withInternalReplyCount": True,
-                "withReplyCount": True,
-                "withReplyCountV2": True,
-                "withTimelinesCount": True,
-                "withReplyContext": True,
-                "withContextualizedReplyCreation": True,
-                "withSelfThreads": True,
-                "withExpandedReplyCount": True,
-                "withParentTweet": True,
-                "withConversationThreads": True,
-                "withGlobalObjects": True,
-                "withExpandedCard": True,
-                "withReplyThreads": True,
-                "withThreadedConversation": True,
-                "withThreadedConversationV2": True,
-                "withThreadedMode": True,
-                "withThreadedModeV2": True,
-                "withThreadedExpansion": True,
-                "withThreadedExpansionV2": True,
-                "withThreadedReplies": True,
-                "withThreadedRepliesV2": True,
-                "withThreadedTweets": True,
-                "withThreadedTweetsV2": True,
-                "withThreadedConversationWithInjectionsV2": True,
-                "withReplies": True,
-                "withRuxInjections": False,
-                "withClientEventToken": False,
-                "withBirdwatchPivots": False,
-                "withAuxiliaryUserLabels": False,
-                "referrer": "profile",
-                "withQuotedTweetResultByRestId": True,
-                "withBirdwatchNotes": True
-            }
-
-            endpoint = 'UserTweets'  # Always use UserTweets to exclude replies
-            response = await self.graphql_request(endpoint, variables)
-
-            if not response or 'data' not in response:
-                logger.error(f"No data found in user tweets response for {user_id}")
-                raise Exception("Failed to get user tweets")
-
-            # Extract tweets from response
-            tweets = []
-            next_cursor = None
-
-            # Try multiple paths to find timeline data
-            timeline_data = None
-            timeline_paths = [
-                lambda: response.get('data', {}).get('user', {}).get('result', {}).get('timeline_v2', {}).get('timeline', {}),
-                lambda: response.get('data', {}).get('user', {}).get('result', {}).get('timeline', {}),
-                lambda: response.get('data', {}).get('user', {}).get('result', {}).get('tweets_timeline', {}).get('timeline', {}),
-                lambda: response.get('data', {}).get('threaded_conversation_with_injections_v2', {})
-            ]
-
+        # Default features for GraphQL requests
+        self.DEFAULT_FEATURES = {
+            "responsive_web_graphql_exclude_directive_enabled": True,
+            "verified_phone_label_enabled": False,
+            "creator_subscriptions_tweet_preview_api_enabled": True,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
+            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+            "c9s_tweet_anatomy_moderator_badge_enabled": True,
+            "tweetypie_unmention_optimization_enabled": True,
+            "responsive_web_edit_tweet_api_enabled": True,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+            "view_counts_everywhere_api_enabled": True,
+            "longform_notetweets_consumption_enabled": True,
+            "responsive_web_twitter_article_tweet_consumption_enabled": True,
+            "tweet_awards_web_tipping_enabled": False,
+            "freedom_of_speech_not_reach_fetch_enabled": True,
+            "standardized_nudges_misinfo": True,
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+            "rweb_video_timestamps_enabled": True,
+            "longform_notetweets_rich_text_read_enabled": True,
+            "longform_notetweets_inline_media_enabled": True,
+            "responsive_web_enhance_cards_enabled": False,
+            "responsive_web_media_download_video_enabled": True,
+            "hidden_profile_subscriptions_enabled": True,
+            "profile_label_improvements_pcf_label_in_post_enabled": True, 
+            "rweb_tipjar_consumption_enabled": True,
+            "responsive_web_graphql_exclude_directive_enabled": True,
+            "verified_phone_label_enabled": False,
+            "subscriptions_verification_info_is_identity_verified_enabled": True,
+            "subscriptions_verification_info_verified_since_enabled": True,
+            "highlights_tweets_tab_ui_enabled": True,
+            "responsive_web_twitter_article_notes_tab_enabled": True,
+            "subscriptions_feature_can_gift_premium": False,
+            "creator_subscriptions_tweet_preview_api_enabled": True,
+            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
+            "hidden_profile_subscriptions_enabled": True,
+            "profile_label_improvements_pcf_label_in_post_enabled": True,
+            "rweb_tipjar_consumption_enabled": True,
+            "responsive_web_graphql_exclude_directive_enabled": True,
+            "verified_phone_label_enabled": False,
+            "highlights_tweets_tab_ui_enabled": True,
+            "responsive_web_twitter_article_notes_tab_enabled": True,
+            "subscriptions_feature_can_gift_premium": False,
+            "creator_subscriptions_tweet_preview_api_enabled": True,
+            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
+            "profile_label_improvements_pcf_label_in_post_enabled": True,
+            "rweb_tipjar_consumption_enabled": True,
+            "responsive_web_graphql_exclude_directive_enabled": True,
+            "verified_phone_label_enabled": False,
+            "creator_subscriptions_tweet_preview_api_enabled": True,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
+            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+            "premium_content_api_read_enabled": False,
+            "communities_web_enable_tweet_community_results_fetch": True,
+            "c9s_tweet_anatomy_moderator_badge_enabled": True,
+            "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
+            "responsive_web_grok_analyze_post_followups_enabled": False,
+            "responsive_web_grok_share_attachment_enabled": True,
+            "articles_preview_enabled": True,
+            "responsive_web_edit_tweet_api_enabled": True,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+            "view_counts_everywhere_api_enabled": True,
+            "longform_notetweets_consumption_enabled": True,
+            "responsive_web_twitter_article_tweet_consumption_enabled": True,
+            "tweet_awards_web_tipping_enabled": False,
+            "creator_subscriptions_quote_tweet_preview_enabled": False,
+            "freedom_of_speech_not_reach_fetch_enabled": True,
+            "standardized_nudges_misinfo": True,
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+            "rweb_video_timestamps_enabled": True,
+            "longform_notetweets_rich_text_read_enabled": True,
+            "longform_notetweets_inline_media_enabled": True,
+            "responsive_web_enhance_cards_enabled": False,
+            "profile_label_improvements_pcf_label_in_post_enabled": True,
+            "rweb_tipjar_consumption_enabled": True,
+            "responsive_web_graphql_exclude_directive_enabled": True,
+            "verified_phone_label_enabled": False,
+            "creator_subscriptions_tweet_preview_api_enabled": True,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
+            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+            "premium_content_api_read_enabled": False,
+            "communities_web_enable_tweet_community_results_fetch": True,
+            "c9s_tweet_anatomy_moderator_badge_enabled": True,
+            "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
+            "responsive_web_grok_analyze_post_followups_enabled": False,
+            "responsive_web_grok_share_attachment_enabled": True,
+            "articles_preview_enabled": True,
+            "responsive_web_edit_tweet_api_enabled": True,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+            "view_counts_everywhere_api_enabled": True,
+            "longform_notetweets_consumption_enabled": True,
+            "responsive_web_twitter_article_tweet_consumption_enabled": True,
+            "tweet_awards_web_tipping_enabled": False,
+            "creator_subscriptions_quote_tweet_preview_enabled": False,
+            "freedom_of_speech_not_reach_fetch_enabled": True,
+            "standardized_nudges_misinfo": True,
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+            "rweb_video_timestamps_enabled": True,
+            "longform_notetweets_rich_text_read_enabled": True,
+            "longform_notetweets_inline_media_enabled": True,
+            "responsive_web_enhance_cards_enabled": False,
+            "profile_label_improvements_pcf_label_in_post_enabled": True,
+            "rweb_tipjar_consumption_enabled": True,
+            "responsive_web_graphql_exclude_directive_enabled": True,
+            "verified_phone_label_enabled": False,
+            "creator_subscriptions_tweet_preview_api_enabled": True,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
+            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+            "premium_content_api_read_enabled": False,
+            "communities_web_enable_tweet_community_results_fetch": True,
+            "c9s_tweet_anatomy_moderator_badge_enabled": True,
+            "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
+            "responsive_web_grok_analyze_post_followups_enabled": False,
+            "responsive_web_grok_share_attachment_enabled": True,
+            "articles_preview_enabled": True,
+            "responsive_web_edit_tweet_api_enabled": True,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+            "view_counts_everywhere_api_enabled": True,
+            "longform_notetweets_consumption_enabled": True,
+            "responsive_web_twitter_article_tweet_consumption_enabled": True,
+            "tweet_awards_web_tipping_enabled": False,
+            "creator_subscriptions_quote_tweet_preview_enabled": False,
+            "freedom_of_speech_not_reach_fetch_enabled": True,
+            "standardized_nudges_misinfo": True,
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+            "rweb_video_timestamps_enabled": True,
+            "longform_notetweets_rich_text_read_enabled": True,
+            "longform_notetweets_inline_media_enabled": True,
+            "responsive_web_enhance_cards_enabled": False,
+            "profile_label_improvements_pcf_label_in_post_enabled": True,
+            "rweb_tipjar_consumption_enabled": True,
+            "responsive_web_graphql_exclude_directive_enabled": True,
+            "verified_phone_label_enabled": False,
+            "creator_subscriptions_tweet_preview_api_enabled": True,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
+            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+            "premium_content_api_read_enabled": False,
+            "communities_web_enable_tweet_community_results_fetch": True,
+            "c9s_tweet_anatomy_moderator_badge_enabled": True,
+            "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
+            "responsive_web_grok_analyze_post_followups_enabled": False,
+            "responsive_web_grok_share_attachment_enabled": True,
+            "articles_preview_enabled": True,
+            "responsive_web_edit_tweet_api_enabled": True,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+            "view_counts_everywhere_api_enabled": True,
+            "longform_notetweets_consumption_enabled": True,
+            "responsive_web_twitter_article_tweet_consumption_enabled": True,
+            "tweet_awards_web_tipping_enabled": False,
+            "creator_subscriptions_quote_tweet_preview_enabled": False,
+            "freedom_of_speech_not_reach_fetch_enabled": True,
+            "standardized_nudges_misinfo": True,
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+            "rweb_video_timestamps_enabled": True,
+            "longform_notetweets_rich_text_read_enabled": True,
+            "longform_notetweets_inline_media_enabled": True,
+            "responsive_web_enhance_cards_enabled": False,
+            "profile_label_improvements_pcf_label_in_post_enabled": True,
+            "rweb_tipjar_consumption_enabled": True,
+            "responsive_web_graphql_exclude_directive_enabled": True,
+            "verified_phone_label_enabled": False,
+            "creator_subscriptions_tweet_preview_api_enabled": True,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
+            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+            "premium_content_api_read_enabled": False,
+            "communities_web_enable_tweet_community_results_fetch": True,
+            "c9s_tweet_anatomy_moderator_badge_enabled": True,
+            "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
+            "responsive_web_grok_analyze_post_followups_enabled": False,
+            "responsive_web_grok_share_attachment_enabled": True,
+            "articles_preview_enabled": True,
+            "responsive_web_edit_tweet_api_enabled": True,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+            "view_counts_everywhere_api_enabled": True,
+            "longform_notetweets_consumption_enabled": True,
+            "responsive_web_twitter_article_tweet_consumption_enabled": True,
+            "tweet_awards_web_tipping_enabled": False,
+            "creator_subscriptions_quote_tweet_preview_enabled": False,
+            "freedom_of_speech_not_reach_fetch_enabled": True,
+            "standardized_nudges_misinfo": True,
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+            "rweb_video_timestamps_enabled": True,
+            "longform_notetweets_rich_text_read_enabled": True,
+            "longform_notetweets_inline_media_enabled": True,
+            "responsive_web_enhance_cards_enabled": False,
+            "profile_label_improvements_pcf_label_in_post_enabled": True,
+            "rweb_tipjar_consumption_enabled": True,
+            "responsive_web_graphql_exclude_directive_enabled": True,
+            "verified_phone_label_enabled": False,
+            "creator_subscriptions_tweet_preview_api_enabled": True,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
+            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+            "premium_content_api_read_enabled": False,
+            "communities_web_enable_tweet_community_results_fetch": True,
+            "c9s_tweet_anatomy_moderator_badge_enabled": True,
+            "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
+            "responsive_web_grok_analyze_post_followups_enabled": False,
+            "responsive_web_grok_share_attachment_enabled": True,
+            "articles_preview_enabled": True,
+            "responsive_web_edit_tweet_api_enabled": True,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+            "view_counts_everywhere_api_enabled": True,
+            "longform_notetweets_consumption_enabled": True,
+            "responsive_web_twitter_article_tweet_consumption_enabled": True,
+            "tweet_awards_web_tipping_enabled": False,
+            "creator_subscriptions_quote_tweet_preview_enabled": False,
+            "freedom_of_speech_not_reach_fetch_enabled": True,
+            "standardized_nudges_misinfo": True,
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+            "rweb_video_timestamps_enabled": True,
+            "longform_notetweets_rich_text_read_enabled": True,
+            "longform_notetweets_inline_media_enabled": True,
+            "responsive_web_enhance_cards_enabled": False,
+            "profile_label_improvements_pcf_label_in_post_enabled": True,
+            "rweb_tipjar_consumption_enabled": True,
+            "responsive_web_graphql_exclude_directive_enabled": True,
+            "verified_phone_label_enabled": False,
+            "creator_subscriptions_tweet_preview_api_enabled": True,
+            "responsive_web_graphql_timeline_navigation_enabled": True,
+            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+            "premium_content_api_read_enabled": False,
+            "communities_web_enable_tweet_community_results_fetch": True,
+            "c9s_tweet_anatomy_moderator_badge_enabled": True,
+            "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
+            "responsive_web_grok_analyze_post_followups_enabled": False,
+            "responsive_web_grok_share_attachment_enabled": True,
+            "articles_preview_enabled": True,
+            "responsive_web_edit_tweet_api_enabled": True,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+            "view_counts_everywhere_api_enabled": True,
+            "longform_notetweets_consumption_enabled": True,
+            "responsive_web_twitter_article_tweet_consumption_enabled": True,
+            "tweet_awards_web_tipping_enabled": False,
+            "creator_subscriptions_quote_tweet_preview_enabled": False,
+            "freedom_of_speech_not_reach_fetch_enabled": True,
+            "standardized_nudges_misinfo": True,
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+            "rweb_video_timestamps_enabled": True,
+            "longform_notetweets_rich_text_read_enabled": True,
+            "longform_notetweets_inline_media_enabled": True,
+            "responsive_web_enhance_cards_enabled": False,
+            "premium_content_api_read_enabled": False,
+            "communities_web_enable_tweet_community_results_fetch": True,
+            "c9s_tweet_anatomy_moderator_badge_enabled": True,
+            "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
+            "responsive_web_grok_analyze_post_followups_enabled": False,
+            "responsive_web_grok_share_attachment_enabled": True,
+            "responsive_web_edit_tweet_api_enabled": True,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+            "view_counts_everywhere_api_enabled": True,
+            "longform_notetweets_consumption_enabled": True,
+            "responsive_web_twitter_article_tweet_consumption_enabled": True,
+            "tweet_awards_web_tipping_enabled": False,
             for get_timeline in timeline_paths:
                 try:
                     data = get_timeline()
