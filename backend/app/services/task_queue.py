@@ -335,16 +335,16 @@ class TaskQueue:
     
                 legacy = user_data.get('legacy', {})
     
-            "user_tweets": "like_tweet"
-        }
-        if task_type not in endpoints:
-            raise ValueError(f"Invalid task type: {task_type}")
-        return endpoints[task_type]
-
-    async def _process_task(
-        self,
-        session: AsyncSession,
-        task: Task,
+                # Import MongoDB client and get the scraped profiles collection
+                from ..mongodb_client import get_scraped_profiles_collection
+                collection = get_scraped_profiles_collection()
+    
+                profile_doc = {
+                    "username": username,
+                    "screen_name": legacy.get('screen_name'),
+                    "name": legacy.get('name'),
+                    "description": legacy.get('description'),
+                    "location": legacy.get('location'),
         account: Account
     ) -> dict:
         """Process a single task"""
