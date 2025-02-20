@@ -23,7 +23,7 @@ class TaskQueue:
         self.worker_pool = WorkerPool(self.rate_limiter)
         self.task_processor = TaskProcessor(self.worker_pool)
         self.running = False
-        self.settings = None  # Load settings when starting
+        self.workers = []  # Worker tasks
 
     async def _load_settings(self, session: AsyncSession):
         """Load settings from database"""
@@ -68,31 +68,31 @@ class TaskQueue:
         await self.stop()
         
         try:
-            # Create new session for startup
-            async with self.session_maker() as session:
-                async with session.begin():
-                    # Initialize rate limiter with session maker
-                    self.rate_limiter = RateLimiter(self.session_maker)
-                    
-                    # Load settings from database
-                    self.settings = await self._load_settings(session)
-                    
-                    # Override settings if provided
-                    if max_workers is not None:
-                        self.settings["maxWorkers"] = max_workers
-                    if requests_per_worker is not None:
-                        self.settings["requestsPerWorker"] = requests_per_worker
-                    if request_interval is not None:
-                        self.settings["requestInterval"] = request_interval
-                    
-                    # Set running flag before creating workers
-                    self.running = True
-                    
-                    # Now create workers
-                    for _ in range(self.settings["maxWorkers"]):
-                        worker = asyncio.create_task(self._worker_loop())
-                        self.workers.append(worker)
-                    
+            # Initialize components in a transaction
+            async with self.session_manager.transaction() as session:
+                # Load settings and initialize worker pool
+                await self.worker_pool.load_settings(session)
+                
+                # Override settings if provided
+                if max_workers is not None:
+                    self.worker_pool.settings["max_workers"] = max_workers
+                if requests_per_worker is not None:
+                    self.worker_pool.settings["requests_per_worker"] = requests_per_worker
+                if request_interval is not None:
+                    self.worker_pool.settings["request_interval"] = request_interval
+                
+                # Set running flag before creating workers
+                self.running = True
+                
+                # Create worker tasks
+                for _ in range(self.worker_pool.settings["max_workers"]):
+                    worker = asyncio.create_task(self._worker_loop())
+                    self.workers.append(worker)
+                
+                logger.info(f"Started task queue with settings: {self.worker_pool.settings}")
+        except Exception as e:
+            logger.error(f"Error starting task queue: {str(e)}")
+            self.running = False
                     logger.info(f"Started task queue with settings: {self.settings}")
         except Exception as e:
             logger.error(f"Error starting task queue: {str(e)}")
