@@ -427,3 +427,5 @@ class TaskProcessor:
             
             if not account_no:
                 raise ValueError("account_no is required for profile update")
+            
+            # Get profile update record
