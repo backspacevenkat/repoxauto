@@ -494,3 +494,4 @@ class TaskProcessor:
                                 "limit": 1
                             }
                             await self.rate_limiter.update_rate_limit_info(worker.id, endpoint, rate_limit_info)
+                    
