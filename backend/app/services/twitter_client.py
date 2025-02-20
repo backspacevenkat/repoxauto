@@ -1471,7 +1471,7 @@ class TwitterClient:
             "longform_notetweets_rich_text_read_enabled": True,
             "longform_notetweets_inline_media_enabled": True,
             "responsive_web_enhance_cards_enabled": False,
-                "withBirdwatchPivots": False,
+            "profile_label_improvements_pcf_label_in_post_enabled": True,
                 "withReplyCount": True,
                 "withTweetQuoteCount": True,
                 "withTweetResult": True,
