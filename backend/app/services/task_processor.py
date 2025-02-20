@@ -469,3 +469,4 @@ class TaskProcessor:
             
             # Update profile update record status
             try:
+                profile_update = await session.execute(
