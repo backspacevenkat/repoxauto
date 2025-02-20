@@ -422,3 +422,5 @@ class TaskProcessor:
 
         elif task.type == "update_profile":
             # Handle profile update task
+            account_no = input_params.get("account_no")
+            meta_data = input_params.get("meta_data", {})
