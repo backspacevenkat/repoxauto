@@ -457,16 +457,11 @@ async def start_task_queue(request: Request, session: AsyncSession = Depends(get
                 detail="No active worker accounts available. Please add worker accounts before starting the queue."
             )
             
-        # Log task manager and worker status
-        logger.info(f"Task manager status: {task_manager.get_status()}")
-        logger.info(f"Available workers: {[w.account_no for w in task_manager.available_workers]}")
-        logger.info(f"Active workers: {[w.account_no for w in task_manager.active_workers]}")
-
         # Start queue with verified workers
         if await task_manager.start(session=session):
             # Update app state
             request.app.state.task_queue_running = True
-
+            
             # Broadcast update
             await request.app.state.connection_manager.broadcast({
                 "type": "queue_status",
