@@ -452,3 +452,4 @@ class TaskProcessor:
                 new_login=meta_data.get("new_login")
             )
             
+            # Log the result
