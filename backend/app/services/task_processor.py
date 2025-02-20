@@ -489,3 +489,4 @@ class TaskProcessor:
                             logger.warning(f"Rate limit hit for profile update {profile_update_id}")
                             # Update rate limit info in database
                             rate_limit_info = {
+                                "reset": (datetime.utcnow() + timedelta(minutes=15)).isoformat(),
