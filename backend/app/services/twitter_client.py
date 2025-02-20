@@ -1465,7 +1465,7 @@ class TwitterClient:
             "tweet_awards_web_tipping_enabled": False,
             "creator_subscriptions_quote_tweet_preview_enabled": False,
             "freedom_of_speech_not_reach_fetch_enabled": True,
-                "withVoice": True,
+            "standardized_nudges_misinfo": True,
                 "withDownvotePerspective": False,
                 "withReactionsMetadata": False,
                 "withReactionsPerspective": False,
