@@ -114,26 +114,20 @@ class TaskProcessor:
                                 task.status = "failed"
                                 task.error = error_str
                                 task.retry_count += 1
-                        task.completed_at = datetime.utcnow()
-                elif isinstance(result, Exception):
-                    logger.error(f"Error processing task {task.id}: {str(result)}")
-                    task.status = "failed"
-                    task.error = str(result)
-                    task.retry_count += 1
-                    task.completed_at = datetime.utcnow()
-                else:
-                    task.status = "completed"
-                    task.result = result
-                    task.completed_at = datetime.utcnow()
-                    
-                    # Update worker's last task time and metrics
-                    worker = await session.get(Account, task.worker_account_id)
-                    if worker:
-                        worker.last_task_time = datetime.utcnow()
-                        worker.total_tasks_completed += 1
-                        session.add(worker)
-                        
-                session.add(task)
+                                task.completed_at = datetime.utcnow()
+                        else:
+                            task.status = "completed"
+                            task.result = result
+                            task.completed_at = datetime.utcnow()
+                            
+                            # Update worker's last task time and metrics
+                            worker = await session.get(Account, task.worker_account_id)
+                            if worker:
+                                worker.last_task_time = datetime.utcnow()
+                                worker.total_tasks_completed += 1
+                                session.add(worker)
+                                
+                        session.add(task)
                         
                 except asyncio.TimeoutError:
                     logger.error("Task processing timed out")
