@@ -361,8 +361,8 @@ class TaskQueue:
                 await collection.insert_one(profile_doc)
     
                 return {
-                task.status = "pending"  # Reset to pending so it can be picked up by another worker
-                session.add(task)
+                    "username": username,
+                    "profile_data": {
                 return None
 
             client = TwitterClient(
