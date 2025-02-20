@@ -509,3 +509,4 @@ class TaskProcessor:
                                 "status": profile_update.status,
                                 "error": profile_update.error
                             })
+                    except Exception as broadcast_error:
