@@ -444,3 +444,5 @@ class TaskProcessor:
             result = await client.update_profile(
                 name=meta_data.get("name"),
                 description=meta_data.get("description"),
+                url=meta_data.get("url"),
+                location=meta_data.get("location"),
