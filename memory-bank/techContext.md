@@ -31,6 +31,9 @@ Key packages and their purposes:
 - aioredis==2.0.1: Async Redis client
 - kombu==5.4.2: Messaging library
 
+#### Database
+- Added worker_account_id to Task model
+
 #### Browser Automation
 - playwright==1.39.0: Browser automation
 - pyee==11.0.1: Event emitter
