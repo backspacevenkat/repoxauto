@@ -253,6 +253,10 @@ class TaskQueue:
                 raise
             except Exception as e:
                 logger.error(f"Worker error: {str(e)}", exc_info=True)
+                await asyncio.sleep(0.1)
+
+    async def _get_next_task(self, session: AsyncSession) -> Optional[Task]:
+        """Get next available task to process with row-level locking"""
         # Use SELECT FOR UPDATE SKIP LOCKED to prevent multiple workers from getting the same task
         stmt = select(Task).where(
             and_(
@@ -404,20 +408,25 @@ class TaskQueue:
         count: int
     ) -> List[Account]:
         """Get multiple available worker accounts for parallel processing"""
-        # Query available workers
-        stmt = select(Account).where(
-            and_(
-                Account.act_type == 'worker',
-                Account.is_worker == True,
-                Account.deleted_at.is_(None),
-                or_(
-                    Account.validation_in_progress == ValidationState.COMPLETED,
-                    Account.validation_in_progress == ValidationState.PENDING
+        # Query available workers with row-level locking
+        stmt = (
+            select(Account)
+            .with_for_update(skip_locked=True)
+            .where(
+                and_(
+                    Account.act_type == 'worker',
+                    Account.is_worker == True,
+                    Account.deleted_at.is_(None),
+                    or_(
+                        Account.validation_in_progress == ValidationState.COMPLETED,
+                        Account.validation_in_progress == ValidationState.PENDING
+                    )
                 )
             )
-        ).order_by(
-            Account.current_15min_requests.asc(),
-            Account.total_tasks_completed.asc()
+            .order_by(
+                Account.current_15min_requests.asc(),
+                Account.total_tasks_completed.asc()
+            )
         )
         
         result = await session.execute(stmt)
@@ -910,15 +919,21 @@ class TaskQueue:
         batch_size: int = 10
     ) -> List[Task]:
         """Get pending tasks with row-level locking"""
-        stmt = select(Task).where(
-            and_(
-                Task.status == "pending",
-                Task.retry_count < 3
+        stmt = (
+            select(Task)
+            .with_for_update(skip_locked=True)
+            .where(
+                and_(
+                    Task.status == "pending",
+                    Task.retry_count < 3
+                )
             )
-        ).order_by(
-            Task.priority.desc(),
-            Task.created_at.asc()
-        ).limit(batch_size).with_for_update(skip_locked=True)
+            .order_by(
+                Task.priority.desc(),
+                Task.created_at.asc()
+            )
+            .limit(batch_size)
+        )
     
         result = await session.execute(stmt)
         tasks = result.scalars().all()
