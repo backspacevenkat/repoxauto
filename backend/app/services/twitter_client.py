@@ -1478,7 +1478,7 @@ class TwitterClient:
             "creator_subscriptions_tweet_preview_api_enabled": True,
             "responsive_web_graphql_timeline_navigation_enabled": True,
             "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
-                "withTweetImpression": True,
+            "premium_content_api_read_enabled": False,
                 "withTweetView": True,
                 "withThreads": True,
                 "withConversationControl": True,
