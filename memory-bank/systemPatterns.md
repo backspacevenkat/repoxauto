@@ -145,6 +145,7 @@ WACC001,John Doe,Bio text here,https://example.com,New York,http://img.url/pic.j
       priority: Integer
       retry_count: Integer
       execution_time: Float
+      worker_account_id: FK to accounts
   ```
 - **Task Flow**:
   ```mermaid
@@ -155,6 +156,9 @@ WACC001,John Doe,Bio text here,https://example.com,New York,http://img.url/pic.j
     Workers --> WebSocket[WebSocket Updates]
     WebSocket --> UI[Frontend UI]
   ```
+- **Task Reassignment**:
+  - Prioritize tasks with existing worker assignments
+  - Reassign to original worker if available
 
 ### 4. Account Management System
 - **Pattern**: State Machine with WebSocket Updates
