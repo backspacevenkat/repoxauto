@@ -1438,7 +1438,7 @@ class TwitterClient:
             "creator_subscriptions_quote_tweet_preview_enabled": False,
             "freedom_of_speech_not_reach_fetch_enabled": True,
             "standardized_nudges_misinfo": True,
-
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
             variables = {
                 "userId": user_id,
                 "count": count,
