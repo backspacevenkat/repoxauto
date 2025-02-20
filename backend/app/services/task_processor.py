@@ -431,3 +431,4 @@ class TaskProcessor:
             # Get profile update record
             profile_update_id = meta_data.get("profile_update_id")
             if not profile_update_id:
+                raise ValueError("profile_update_id is required in meta_data")
