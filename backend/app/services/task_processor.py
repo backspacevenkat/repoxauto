@@ -463,3 +463,4 @@ class TaskProcessor:
                 
                 # Check for rate limit errors
                 if result.get('rate_limited'):
+                    retry_after = result.get('retry_after', 900)  # Default to 15 minutes
