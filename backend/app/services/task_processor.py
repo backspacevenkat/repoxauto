@@ -104,10 +104,17 @@ class TaskProcessor:
                                         # Try to extract JSON response after 200 OK
                                         json_str = response_data[1].strip()
                                         if json_str:
-                                            # This was actually a successful request with data
-                                            task.status = "completed"
-                                            task.result = {"success": True, "message": "Task completed successfully"}
-                                            task.completed_at = datetime.utcnow()
+                                            try:
+                                                # Try to parse the actual response data
+                                                response_json = json.loads(json_str)
+                                                # This was actually a successful request with valid JSON data
+                                                task.status = "completed"
+                                                task.result = response_json  # Use the actual response data
+                                                task.completed_at = datetime.utcnow()
+                                            except json.JSONDecodeError:
+                                                # Response wasn't valid JSON
+                                                logger.error(f"Invalid JSON response for task {task.id}: {json_str[:200]}")
+                                                tasks_to_reassign.append(task)
                                             
                                             # Update worker's last task time and metrics
                                             worker = await session.get(Account, task.worker_account_id)
