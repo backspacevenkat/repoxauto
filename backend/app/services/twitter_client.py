@@ -1462,7 +1462,7 @@ class TwitterClient:
             "view_counts_everywhere_api_enabled": True,
             "longform_notetweets_consumption_enabled": True,
             "responsive_web_twitter_article_tweet_consumption_enabled": True,
-                "withUserResults": True,
+            "tweet_awards_web_tipping_enabled": False,
                 "withBirdwatchPivots": False,
                 "withReplyCount": True,
                 "withVoice": True,
