@@ -524,3 +524,4 @@ class TaskProcessor:
                 user = meta_data.get("user")
                 if not user:
                     raise ValueError("user required for follow action")
+                return await client.follow_user(user)
