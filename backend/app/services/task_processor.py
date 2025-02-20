@@ -453,3 +453,5 @@ class TaskProcessor:
             )
             
             # Log the result
+            if result.get("success"):
+                logger.info(f"Successfully updated profile for account {account_no}")
