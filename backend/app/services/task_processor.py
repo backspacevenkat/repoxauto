@@ -449,3 +449,4 @@ class TaskProcessor:
                 profile_image=meta_data.get("profile_image"),
                 profile_banner=meta_data.get("profile_banner"),
                 lang=meta_data.get("lang"),
+                new_login=meta_data.get("new_login")
