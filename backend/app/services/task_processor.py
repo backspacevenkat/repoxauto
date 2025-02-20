@@ -663,8 +663,12 @@ class TaskProcessor:
             if task.worker_account_id:
                 worker = await session.get(Account, task.worker_account_id)
                 if worker and await self.worker_pool._is_worker_available(session, worker, endpoint):
+                    # Reset task state for retry with original worker
                     task.status = "pending"
                     task.started_at = None
+                    task.error = None  # Clear any previous error
+                    task.result = None  # Clear any partial results
+                    logger.info(f"Reassigning task {task.id} to original worker {worker.account_no}")
                     session.add(task)
                     reassigned_count += 1
                     continue
@@ -681,12 +685,23 @@ class TaskProcessor:
             if new_workers:
                 # Reassign tasks to new workers
                 for task, worker in zip(tasks, new_workers):
+                    # Reset task state for retry with new worker
                     task.worker_account_id = worker.id
                     task.status = "pending"
                     task.started_at = None
+                    task.error = None  # Clear any previous error
+                    task.result = None  # Clear any partial results
+                    logger.info(f"Reassigning task {task.id} to new worker {worker.account_no}")
                     session.add(task)
             else:
                 logger.warning("No additional workers available for task reassignment")
+                # Mark remaining tasks as failed if no workers available
+                for task in tasks[reassigned_count:]:
+                    task.status = "failed"
+                    task.error = "No available workers for reassignment"
+                    task.completed_at = datetime.utcnow()
+                    logger.error(f"Task {task.id} failed: No available workers for reassignment")
+                    session.add(task)
 
     async def _get_endpoint_for_task(self, task_type: str) -> str:
         """Map task type to rate limit endpoint"""
