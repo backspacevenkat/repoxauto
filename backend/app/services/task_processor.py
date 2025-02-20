@@ -111,6 +111,15 @@ class TaskProcessor:
                                                 task.status = "completed"
                                                 task.result = response_json  # Use the actual response data
                                                 task.completed_at = datetime.utcnow()
+                                                
+                                                # Update worker metrics
+                                                worker = await session.get(Account, task.worker_account_id)
+                                                if worker:
+                                                    worker.last_task_time = datetime.utcnow()
+                                                    worker.total_tasks_completed += 1
+                                                    # Log successful task completion
+                                                    logger.info(f"Worker {worker.account_no} completed task {task.id} successfully")
+                                                    session.add(worker)
                                             except json.JSONDecodeError:
                                                 # Response wasn't valid JSON
                                                 logger.error(f"Invalid JSON response for task {task.id}: {json_str[:200]}")
