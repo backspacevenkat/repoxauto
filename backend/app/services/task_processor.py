@@ -1,11 +1,15 @@
 import logging
 import asyncio
-from datetime import datetime
+import json
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.task import Task
 from ..models.account import Account
 from ..models.action import Action
+from ..models.search import TrendingTopic, TopicTweet, SearchedUser
+from ..models.profile_update import ProfileUpdate
 from .worker_pool import WorkerPool
 from .twitter_client import TwitterClient
 
