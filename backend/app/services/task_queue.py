@@ -351,14 +351,14 @@ class TaskQueue:
                     account_id=account.id,
                     action_type=endpoint,
                     window='15min',
-                    limit=self.settings["requestsPerWorker"]
+                    limit=self.worker_pool.settings["requests_per_worker"]
                 )
                 
                 can_use_24h = await self.rate_limiter.check_rate_limit(
                     account_id=account.id,
                     action_type=endpoint,
                     window='24h',
-                    limit=int(self.settings["requestsPerWorker"] * (24 * 60 / self.settings["requestInterval"]))
+                    limit=int(self.worker_pool.settings["requests_per_worker"] * (24 * 60 / self.worker_pool.settings["request_interval"]))
                 )
             
             if not can_use_15min:
