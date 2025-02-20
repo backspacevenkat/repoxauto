@@ -409,3 +409,4 @@ class TaskProcessor:
                 }
                 tweet_docs.append(tweet_doc)
 
+            if tweet_docs:
