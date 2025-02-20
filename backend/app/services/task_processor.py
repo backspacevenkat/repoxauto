@@ -411,3 +411,4 @@ class TaskProcessor:
 
             if tweet_docs:
                 await collection.insert_many(tweet_docs)
+
