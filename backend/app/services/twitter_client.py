@@ -1524,7 +1524,7 @@ class TwitterClient:
             "standardized_nudges_misinfo": True,
             "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
             "rweb_video_timestamps_enabled": True,
-                raise Exception("Failed to get user tweets")
+            "longform_notetweets_rich_text_read_enabled": True,
 
             # Extract tweets from response
             tweets = []
