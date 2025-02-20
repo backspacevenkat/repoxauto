@@ -486,3 +486,4 @@ class TaskProcessor:
                         
                         # Check for rate limit errors
                         if "429" in error_msg or "rate limit" in error_msg.lower():
+                            logger.warning(f"Rate limit hit for profile update {profile_update_id}")
