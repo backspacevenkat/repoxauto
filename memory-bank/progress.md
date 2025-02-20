@@ -181,6 +181,7 @@
 - [ ] Usage analytics
 
 ## Pending Features ⏳
+
 ### 1. Advanced Task Types
 - [ ] Custom scraping patterns
 - [ ] Advanced filtering
