@@ -30,7 +30,6 @@ class Task(Base):
     priority = Column(Integer, default=0)
     retry_count = Column(Integer, default=0)
     execution_time = Column(Float, nullable=True)  # in seconds
-    worker_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)
 
     # Relationships
     worker_account = relationship(
