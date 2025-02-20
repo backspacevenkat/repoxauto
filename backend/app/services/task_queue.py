@@ -312,15 +312,15 @@ class TaskQueue:
                         session.add(db_user)
                     # Update task result
                     task.result = result
+                
+                return result
 
-        return available_accounts
-
-    async def _get_endpoint_for_task(self, task_type: str, session: AsyncSession) -> str:
-        """Map task type to rate limit endpoint"""
-        endpoints = {
-            # Action tasks with their own rate limits
-            "like_tweet": "like_tweet",
-            "retweet_tweet": "retweet_tweet",
+            elif task.type == "scrape_profile":
+                # Handle profile scraping logic and save complete profile data to MongoDB
+                username = input_params.get("username")
+                if not username:
+                    raise ValueError("Username is required for scrape_profile task")
+    
             "reply_tweet": "reply_tweet",
             "quote_tweet": "quote_tweet",
             "create_tweet": "create_tweet",
