@@ -123,19 +123,51 @@ class TaskProcessor:
                                             except json.JSONDecodeError:
                                                 # Response wasn't valid JSON
                                                 logger.error(f"Invalid JSON response for task {task.id}: {json_str[:200]}")
-                                                tasks_to_reassign.append(task)
+                                                if task.retry_count >= 3:
+                                                    task.status = "failed"
+                                                    task.error = "Failed to parse response after maximum retries"
+                                                    task.completed_at = datetime.utcnow()
+                                                    logger.error(f"Task {task.id} failed after maximum retries (invalid JSON)")
+                                                else:
+                                                    task.retry_count += 1
+                                                    tasks_to_reassign.append(task)
+                                                    logger.warning(f"Task {task.id} will retry (invalid JSON, attempt {task.retry_count}/3)")
                                         else:
                                             # No response data after 200 OK
                                             logger.error(f"Empty response data for task {task.id}")
-                                            tasks_to_reassign.append(task)
+                                            if task.retry_count >= 3:
+                                                task.status = "failed"
+                                                task.error = "Empty response after maximum retries"
+                                                task.completed_at = datetime.utcnow()
+                                                logger.error(f"Task {task.id} failed after maximum retries (empty response)")
+                                            else:
+                                                task.retry_count += 1
+                                                tasks_to_reassign.append(task)
+                                                logger.warning(f"Task {task.id} will retry (empty response, attempt {task.retry_count}/3)")
                                     except Exception as e:
                                         # Error parsing response data
                                         logger.error(f"Error parsing response data for task {task.id}: {str(e)}")
-                                        tasks_to_reassign.append(task)
+                                        if task.retry_count >= 3:
+                                            task.status = "failed"
+                                            task.error = f"Failed to parse response after maximum retries: {str(e)}"
+                                            task.completed_at = datetime.utcnow()
+                                            logger.error(f"Task {task.id} failed after maximum retries (parse error)")
+                                        else:
+                                            task.retry_count += 1
+                                            tasks_to_reassign.append(task)
+                                            logger.warning(f"Task {task.id} will retry (parse error, attempt {task.retry_count}/3)")
                                 else:
                                     # Proxy error without success
                                     logger.error(f"Proxy error for task {task.id}: {error_str}")
-                                    tasks_to_reassign.append(task)
+                                    if task.retry_count >= 3:
+                                        task.status = "failed"
+                                        task.error = "Proxy error after maximum retries"
+                                        task.completed_at = datetime.utcnow()
+                                        logger.error(f"Task {task.id} failed after maximum retries (proxy error)")
+                                    else:
+                                        task.retry_count += 1
+                                        tasks_to_reassign.append(task)
+                                        logger.warning(f"Task {task.id} will retry (proxy error, attempt {task.retry_count}/3)")
                             else:
                                 # Real error occurred
                                 logger.error(f"Error processing task {task.id}: {error_str}")
