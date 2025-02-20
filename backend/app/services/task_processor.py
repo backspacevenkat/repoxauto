@@ -565,3 +565,65 @@ class TaskProcessor:
                     raise ValueError("text_content required for create tweet")
                 return await client.create_tweet(text_content, media)
                 
+            elif task.type == "send_dm":
+                text_content = meta_data.get("text_content")
+                user = meta_data.get("user")
+                media = meta_data.get("media")
+                if not text_content:
+                    raise ValueError("text_content required for DM")
+                if not user:
+                    raise ValueError("user required for DM")
+                return await client.send_dm(user, text_content, media)
+
+        raise ValueError(f"Invalid task type: {task.type}")
+
+    async def _reassign_tasks(
+        self,
+        session: AsyncSession,
+        tasks: List[Task],
+        endpoint: str
+    ) -> None:
+        """Reassign failed tasks to new workers"""
+        # Get new workers, excluding the ones that failed
+        failed_worker_ids = set(task.worker_account_id for task in tasks)
+        new_workers = await self.worker_pool.get_available_workers(
+            session,
+            endpoint,
+            len(tasks)
+        )
+        new_workers = [w for w in new_workers if w.id not in failed_worker_ids]
+
+        if new_workers:
+            # Reassign tasks to new workers
+            for task, worker in zip(tasks, new_workers):
+                task.worker_account_id = worker.id
+                task.status = "pending"
+                task.started_at = None
+                session.add(task)
+        else:
+            logger.warning("No additional workers available for task reassignment")
+
+    async def _get_endpoint_for_task(self, task_type: str) -> str:
+        """Map task type to rate limit endpoint"""
+        endpoints = {
+            "like_tweet": "like_tweet",
+            "retweet_tweet": "retweet_tweet",
+            "reply_tweet": "reply_tweet",
+            "quote_tweet": "quote_tweet",
+            "create_tweet": "create_tweet",
+            "follow_user": "follow_user",
+            "send_dm": "send_dm",
+            "update_profile": "update_profile",
+            "scrape_profile": "like_tweet",
+            "scrape_tweets": "like_tweet",
+            "search_trending": "like_tweet",
+            "search_tweets": "like_tweet",
+            "search_users": "like_tweet",
+            "user_profile": "like_tweet",
+            "user_tweets": "like_tweet"
+        }
+        
+        if task_type not in endpoints:
+            raise ValueError(f"Invalid task type: {task_type}")
+            
+        return endpoints[task_type]
