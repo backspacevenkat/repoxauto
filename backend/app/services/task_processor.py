@@ -404,3 +404,4 @@ class TaskProcessor:
                     "urls": tweet.get("urls", []),
                     "retweeted_by": tweet.get("retweeted_by"),
                     "retweeted_at": tweet.get("retweeted_at"),
+                    "quoted_tweet": tweet.get("quoted_tweet"),
