@@ -462,3 +462,4 @@ class TaskProcessor:
                 logger.error(f"Error: {error_msg}")
                 
                 # Check for rate limit errors
+                if result.get('rate_limited'):
