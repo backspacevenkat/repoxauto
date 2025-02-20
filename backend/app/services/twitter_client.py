@@ -1439,7 +1439,7 @@ class TwitterClient:
             "freedom_of_speech_not_reach_fetch_enabled": True,
             "standardized_nudges_misinfo": True,
             "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
-            variables = {
+            "rweb_video_timestamps_enabled": True,
                 "userId": user_id,
                 "count": count,
                 "cursor": cursor,
