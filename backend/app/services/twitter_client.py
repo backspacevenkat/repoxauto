@@ -1534,7 +1534,7 @@ class TwitterClient:
             "responsive_web_grok_analyze_post_followups_enabled": False,
             "responsive_web_grok_share_attachment_enabled": True,
             "responsive_web_edit_tweet_api_enabled": True,
-                lambda: response.get('data', {}).get('user', {}).get('result', {}).get('timeline', {}),
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
                 lambda: response.get('data', {}).get('user', {}).get('result', {}).get('tweets_timeline', {}).get('timeline', {}),
                 lambda: response.get('data', {}).get('threaded_conversation_with_injections_v2', {})
             ]
