@@ -442,3 +442,4 @@ class TaskProcessor:
 
             # Update profile using API
             result = await client.update_profile(
+                name=meta_data.get("name"),
