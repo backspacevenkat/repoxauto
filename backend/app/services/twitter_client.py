@@ -1522,7 +1522,7 @@ class TwitterClient:
             "creator_subscriptions_quote_tweet_preview_enabled": False,
             "freedom_of_speech_not_reach_fetch_enabled": True,
             "standardized_nudges_misinfo": True,
-            if not response or 'data' not in response:
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
                 logger.error(f"No data found in user tweets response for {user_id}")
                 raise Exception("Failed to get user tweets")
 
