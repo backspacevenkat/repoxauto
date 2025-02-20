@@ -17,6 +17,9 @@ from .task_processor import TaskProcessor
 from .rate_limiter import RateLimiter
 from .twitter_client import TwitterClient
 
+logger = logging.getLogger(__name__)
+
+class TaskQueue:
     def __init__(self, session_maker):
         self.session_manager = SessionManager(session_maker)
         self.rate_limiter = RateLimiter(session_maker)
@@ -66,9 +69,6 @@ from .twitter_client import TwitterClient
         await self.stop()
         
         try:
-            # Initialize components in a transaction
-            async with self.session_manager.transaction() as session:
-                # Load settings and initialize worker pool
                 await self.worker_pool.load_settings(session)
                 
                 # Override settings if provided
