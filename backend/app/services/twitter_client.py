@@ -1523,7 +1523,7 @@ class TwitterClient:
             "freedom_of_speech_not_reach_fetch_enabled": True,
             "standardized_nudges_misinfo": True,
             "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
-                logger.error(f"No data found in user tweets response for {user_id}")
+            "rweb_video_timestamps_enabled": True,
                 raise Exception("Failed to get user tweets")
 
             # Extract tweets from response
