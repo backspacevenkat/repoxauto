@@ -549,3 +549,4 @@ class TaskProcessor:
                 return await client.reply_tweet(tweet_id, text_content, media)
                 
             elif task.type == "quote_tweet":
+                tweet_id = input_params.get("tweet_id")
