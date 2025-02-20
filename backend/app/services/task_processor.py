@@ -527,3 +527,4 @@ class TaskProcessor:
                 return await client.follow_user(user)
                 
             elif task.type == "like_tweet":
+                tweet_id = input_params.get("tweet_id")
