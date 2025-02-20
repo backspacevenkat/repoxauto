@@ -471,6 +471,8 @@
 - Enhancing batch processing
 - Improving error recovery
 - Optimizing resource usage
+- Implemented task reassignment to original workers
+- Added worker_account_id to Task model
 
 ### 3. System Reliability
 - Strengthening error handling
