@@ -32,7 +32,7 @@ Key packages and their purposes:
 - kombu==5.4.2: Messaging library
 
 #### Database
-- Added worker_account_id to Task model
+- Added worker_account_id column to Task model
 
 #### Browser Automation
 - playwright==1.39.0: Browser automation
