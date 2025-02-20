@@ -502,3 +502,4 @@ class TaskProcessor:
                     # Broadcast profile update status change
                     try:
                         from ..main import app
+                        if hasattr(app.state, 'connection_manager'):
