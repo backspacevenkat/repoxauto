@@ -456,3 +456,4 @@ class TaskProcessor:
             if result.get("success"):
                 logger.info(f"Successfully updated profile for account {account_no}")
                 logger.info(f"API Response: {json.dumps(result.get('responses', {}), indent=2)}")
+            else:
