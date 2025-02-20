@@ -363,9 +363,9 @@ class TaskQueue:
                 return {
                     "username": username,
                     "profile_data": {
-                return None
-
-            client = TwitterClient(
+                        "id": user_data.get('rest_id'),
+                        "screen_name": legacy.get('screen_name'),
+                        "name": legacy.get('name'),
                 account_no=account.account_no,
                 auth_token=account.auth_token,
                 ct0=account.ct0,
