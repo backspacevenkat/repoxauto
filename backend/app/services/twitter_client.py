@@ -1055,7 +1055,14 @@ class TwitterClient:
                         raise ValueError(f"Invalid port: {str(e)}")
                     
                     # Configure transport with proxy
-                    proxy_url = httpx.URL(self.proxy_url)
+                    # First properly encode the proxy URL components
+                    parsed = urlparse(self.proxy_url)
+                    encoded_username = quote_plus(parsed.username or '')
+                    encoded_password = quote_plus(parsed.password or '')
+                    encoded_proxy_url = f"{parsed.scheme}://{encoded_username}:{encoded_password}@{parsed.hostname}:{parsed.port}"
+                    
+                    # Create transport with encoded proxy URL
+                    proxy_url = httpx.URL(encoded_proxy_url)
                     transport = httpx.AsyncHTTPTransport(
                         proxy=proxy_url,
                         verify=False,
@@ -3901,13 +3908,6 @@ class TwitterClient:
                         request_kwargs["data"] = data
                     else:
                         # Default to JSON if no specific content type
-                        request_kwargs["json"] = data
-                else:
-                    request_kwargs["data"] = data
-
-            # Make the request with proper error handling
-            resp = await self.client.request(**request_kwargs)
-            
             # Handle different response status codes
             if resp.status_code == 204:  # No Content
                 return {}
