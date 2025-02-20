@@ -380,7 +380,7 @@ class TaskQueue:
                         },
                         "verified": legacy.get('verified', False),
                         "protected": legacy.get('protected', False),
-            
+                        "created_at": legacy.get('created_at'),
             # Record action attempt for rate limiting
             input_params = task.input_params
             if isinstance(input_params, str):
