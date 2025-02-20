@@ -95,19 +95,26 @@ class TaskProcessor:
                         # Check if it's an exception but the request actually succeeded
                         if isinstance(result, Exception):
                             error_str = str(result)
-                            if "Username and password must be escaped" in error_str and "HTTP/1.1 200 OK" in error_str:
-                                # This is just a proxy encoding warning, not a real error
-                                # The request succeeded (200 OK)
-                                task.status = "completed"
-                                task.result = {"success": True, "message": "Task completed successfully"}
-                                task.completed_at = datetime.utcnow()
-                                
-                                # Update worker's last task time and metrics
-                                worker = await session.get(Account, task.worker_account_id)
-                                if worker:
-                                    worker.last_task_time = datetime.utcnow()
-                                    worker.total_tasks_completed += 1
-                                    session.add(worker)
+                            # Check if this is just a proxy warning with a successful request
+                            if "Username and password must be escaped" in error_str:
+                                # Extract response data between the warning and the end
+                                response_data = error_str.split("HTTP/1.1 200 OK", 1)
+                                if len(response_data) > 1 and "200 OK" in error_str:
+                                    # This was actually a successful request
+                                    task.status = "completed"
+                                    task.result = {"success": True, "message": "Task completed successfully"}
+                                    task.completed_at = datetime.utcnow()
+                                    
+                                    # Update worker's last task time and metrics
+                                    worker = await session.get(Account, task.worker_account_id)
+                                    if worker:
+                                        worker.last_task_time = datetime.utcnow()
+                                        worker.total_tasks_completed += 1
+                                        session.add(worker)
+                                else:
+                                    # Proxy error without success
+                                    logger.error(f"Proxy error for task {task.id}: {error_str}")
+                                    tasks_to_reassign.append(task)
                             else:
                                 # Real error occurred
                                 logger.error(f"Error processing task {task.id}: {error_str}")
