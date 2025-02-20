@@ -36,27 +36,25 @@ class TaskQueue:
                 # Create default settings if none exist
                 settings = SystemSettings()
                 session.add(settings)
-                await session.commit()
-                await session.refresh(settings)
             
             return {
-                "maxWorkers": settings.max_concurrent_workers,
-                "requestsPerWorker": settings.max_requests_per_worker,
-                "requestInterval": settings.request_interval,
-                "taskBatchSize": 5,  # Default batch size
-                "retryAttempts": 3,  # Default retry attempts
-                "retryDelay": 5      # Default retry delay in seconds
+                "max_workers": settings.max_concurrent_workers,
+                "requests_per_worker": settings.max_requests_per_worker,
+                "request_interval": settings.request_interval,
+                "task_batch_size": 5,  # Default batch size
+                "retry_attempts": 3,  # Default retry attempts
+                "retry_delay": 5      # Default retry delay in seconds
             }
         except Exception as e:
             logger.error(f"Error loading settings: {str(e)}")
             # Return default settings if database access fails
             return {
-                "maxWorkers": 6,
-                "requestsPerWorker": 900,
-                "requestInterval": 15,
-                "taskBatchSize": 5,
-                "retryAttempts": 3,
-                "retryDelay": 5
+                "max_workers": 6,
+                "requests_per_worker": 900,
+                "request_interval": 15,
+                "task_batch_size": 5,
+                "retry_attempts": 3,
+                "retry_delay": 5
             }
 
     async def start(self, max_workers: int = None, requests_per_worker: int = None, request_interval: int = None):
@@ -69,6 +67,8 @@ class TaskQueue:
         
         try:
             # Initialize components in a transaction
+            async with self.session_manager.transaction() as session:
+                # Load settings and initialize worker pool
             async with self.session_manager.transaction() as session:
                 # Load settings and initialize worker pool
                 await self.worker_pool.load_settings(session)
