@@ -15,12 +15,12 @@ import base64
 from requests_oauthlib import OAuth1
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote, urljoin, urlparse, urlencode, parse_qsl
+from urllib.parse import quote_plus, urljoin, urlparse, urlencode, parse_qsl
 
 def construct_proxy_url(username: str, password: str, host: str, port: str) -> str:
     """Construct a proxy URL with proper encoding"""
-    encoded_username = quote(str(username), safe='')
-    encoded_password = quote(str(password), safe='')
+    encoded_username = quote_plus(str(username), safe='')
+    encoded_password = quote_plus(str(password), safe='')
     return f"http://{encoded_username}:{encoded_password}@{host}:{port}"
 
 def generate_nonce(length: int = 32) -> str:
