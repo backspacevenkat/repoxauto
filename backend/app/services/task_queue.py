@@ -36,8 +36,6 @@ class TaskQueue:
                 # Create default settings if none exist
                 settings = SystemSettings()
                 session.add(settings)
-                await session.commit()
-                await session.refresh(settings)
             
             return {
                 "maxWorkers": settings.max_concurrent_workers,
@@ -55,6 +53,8 @@ class TaskQueue:
                 "requestsPerWorker": 900,
                 "requestInterval": 15,
                 "taskBatchSize": 5,
+                "retryAttempts": 3,
+                "retryDelay": 5
                 "retryAttempts": 3,
                 "retryDelay": 5
             }
