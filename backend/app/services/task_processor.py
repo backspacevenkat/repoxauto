@@ -525,3 +525,4 @@ class TaskProcessor:
                 if not user:
                     raise ValueError("user required for follow action")
                 return await client.follow_user(user)
+                
