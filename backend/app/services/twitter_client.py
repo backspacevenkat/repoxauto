@@ -3372,6 +3372,8 @@ class TwitterClient:
             logger.error(f"Error sending DM to {recipient_id}: {str(e)}")
             return {"success": False, "error": str(e)}
 
+    async def update_profile(
+        self,
         name: Optional[str] = None,
         description: Optional[str] = None,
         url: Optional[str] = None,
@@ -3404,8 +3406,6 @@ class TwitterClient:
                 oauth_params = {
                     'oauth_consumer_key': self.consumer_key,
                     'oauth_nonce': generate_nonce(),
-                    'oauth_signature_method': 'HMAC-SHA1',
-                    'oauth_timestamp': str(int(time.time())),
                     'oauth_token': self.access_token,
                     'oauth_version': '1.0'
                 }
