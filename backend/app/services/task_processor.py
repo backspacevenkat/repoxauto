@@ -426,3 +426,4 @@ class TaskProcessor:
             meta_data = input_params.get("meta_data", {})
             
             if not account_no:
+                raise ValueError("account_no is required for profile update")
