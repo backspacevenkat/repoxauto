@@ -85,8 +85,8 @@ class TaskProcessor:
                         asyncio.gather(*processing_tasks, return_exceptions=True),
                         timeout=1800  # 30 minute timeout
                     )
-                    
-            # Handle results
+
+                    # Handle results
             for task, result in zip(task_list, results):
                 if result is None:
                     tasks_to_reassign.append(task)
