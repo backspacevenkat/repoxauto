@@ -496,3 +496,4 @@ class TaskProcessor:
                             await self.rate_limiter.update_rate_limit_info(worker.id, endpoint, rate_limit_info)
                     
                     profile_update.completed_at = datetime.utcnow()
+                    # Log final state
