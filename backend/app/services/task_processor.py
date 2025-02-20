@@ -478,3 +478,5 @@ class TaskProcessor:
                         logger.info(f"Profile update {profile_update_id} completed successfully")
                         profile_update.status = "completed"
                         profile_update.error = None
+                    else:
+                        error_msg = result.get("error", "Unknown error")
