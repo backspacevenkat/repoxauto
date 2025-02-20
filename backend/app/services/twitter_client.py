@@ -3505,6 +3505,8 @@ class TwitterClient:
                 if image_data:
                     # Generate OAuth parameters for image upload
                     oauth_params = {
+                        'oauth_consumer_key': self.consumer_key,
+                        'oauth_nonce': generate_nonce(),
                         'oauth_signature_method': 'HMAC-SHA1',
                         'oauth_timestamp': str(int(time.time())),
                         'oauth_token': self.access_token,
