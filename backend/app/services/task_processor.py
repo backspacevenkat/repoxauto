@@ -503,3 +503,4 @@ class TaskProcessor:
                     try:
                         from ..main import app
                         if hasattr(app.state, 'connection_manager'):
+                            await app.state.connection_manager.broadcast({
