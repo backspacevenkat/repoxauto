@@ -493,19 +493,24 @@ class TwitterClient:
                     pass
                 self.client = None
 
-            # Basic client configuration
+            # Basic client configuration with improved timeout and proxy settings
             client_config = {
-                "timeout": httpx.Timeout(30.0),
+                "timeout": httpx.Timeout(
+                    connect=random.uniform(20.0, 30.0),  # Increased connection timeout
+                    read=random.uniform(45.0, 60.0),    # Increased read timeout
+                    write=random.uniform(45.0, 60.0),   # Increased write timeout
+                    pool=random.uniform(45.0, 60.0)     # Increased pool timeout
+                ),
                 "follow_redirects": True,
                 "verify": False,  # Disable SSL verification for proxies
                 "http2": False,  # Disable HTTP/2 to avoid SSL issues
                 "trust_env": False,  # Don't use system proxy settings
                 "limits": httpx.Limits(
-                    max_keepalive_connections=5,
-                    max_connections=10,
-                    keepalive_expiry=30.0
+                    max_keepalive_connections=random.randint(3, 7),  # Randomized connections
+                    max_connections=random.randint(8, 12),           # Randomized max connections
+                    keepalive_expiry=random.uniform(25.0, 35.0)     # Randomized expiry
                 ),
-                "transport": httpx.AsyncHTTPTransport(retries=3)
+                "transport": httpx.AsyncHTTPTransport(retries=5)  # Increased retries
             }
 
             # Add proxy configuration if available
@@ -2609,11 +2614,6 @@ class TwitterClient:
                 raise Exception("Search failed: No timeline data found")
 
             timeline_data = timeline.get('timeline', {})
-            if not timeline_data:
-                logger.error("No timeline data found in response")
-                raise Exception("Search failed: Empty timeline")
-
-            # Process instructions with validation
             instructions = timeline_data.get('instructions', [])
             if not instructions:
                 logger.error("No instructions found in timeline")
