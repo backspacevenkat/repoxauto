@@ -548,3 +548,4 @@ class TaskProcessor:
                     raise ValueError("tweet_id required for reply action")
                 return await client.reply_tweet(tweet_id, text_content, media)
                 
+            elif task.type == "quote_tweet":
