@@ -304,14 +304,14 @@ class TaskQueue:
                     for user in result.get('users', []):
                         db_user = SearchedUser(
                             keyword=keyword,
-        for account in all_accounts:
-            can_use, _, _ = await self._check_account_rate_limits(session, account, endpoint)
-            if can_use:
-                available_accounts.append(account)
-                account.last_task_time = datetime.utcnow()
-                session.add(account)
-                if len(available_accounts) >= count:
-                    break
+                            user_id=user.get('id'),
+                            user_data=user,
+                            timestamp=datetime.fromisoformat(result['timestamp']),
+                            account_id=account.id
+                        )
+                        session.add(db_user)
+                    # Update task result
+                    task.result = result
 
         return available_accounts
 
