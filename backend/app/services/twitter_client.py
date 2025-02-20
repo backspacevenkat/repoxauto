@@ -1492,7 +1492,7 @@ class TwitterClient:
             "responsive_web_twitter_article_tweet_consumption_enabled": True,
             "tweet_awards_web_tipping_enabled": False,
             "creator_subscriptions_quote_tweet_preview_enabled": False,
-                "withExpandedReplyCount": True,
+            "freedom_of_speech_not_reach_fetch_enabled": True,
                 "withParentTweet": True,
                 "withConversationThreads": True,
                 "withGlobalObjects": True,
