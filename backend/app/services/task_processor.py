@@ -114,6 +114,12 @@ class TaskProcessor:
                         task.status = "failed"
                         task.error = error_str
                         task.retry_count += 1
+                        task.completed_at = datetime.utcnow()
+                elif isinstance(result, Exception):
+                    logger.error(f"Error processing task {task.id}: {str(result)}")
+                    task.status = "failed"
+                    task.error = str(result)
+                    task.retry_count += 1
                     task.completed_at = datetime.utcnow()
                 else:
                     task.status = "completed"
