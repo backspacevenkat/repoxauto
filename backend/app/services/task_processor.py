@@ -533,3 +533,4 @@ class TaskProcessor:
                 return await client.like_tweet(tweet_id)
                 
             elif task.type == "retweet_tweet":
+                tweet_id = input_params.get("tweet_id")
