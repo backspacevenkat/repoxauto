@@ -470,3 +470,4 @@ class TaskProcessor:
             # Update profile update record status
             try:
                 profile_update = await session.execute(
+                    select(ProfileUpdate).where(ProfileUpdate.id == profile_update_id)
