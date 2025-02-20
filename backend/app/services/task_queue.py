@@ -357,10 +357,10 @@ class TaskQueue:
                     "updated_at": datetime.utcnow().isoformat()
                 }
     
-            
-            missing_fields = [field for field, value in required_fields.items() if not value]
-            if missing_fields:
-                logger.warning(f"Worker {account.account_no} missing required fields: {missing_fields}")
+                # Insert the document into MongoDB
+                await collection.insert_one(profile_doc)
+    
+                return {
                 task.status = "pending"  # Reset to pending so it can be picked up by another worker
                 session.add(task)
                 return None
