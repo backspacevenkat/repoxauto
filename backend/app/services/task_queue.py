@@ -211,48 +211,48 @@ class TaskQueue:
     async def _worker_loop(self):
         """Main worker loop to process tasks in parallel"""
         while self.running:
-            session = None
             try:
-                # Create a fresh session
-                session = self.session_maker()
-                # Use single transaction context
-                async with session.begin():
-                    # Get pending tasks
-                    stmt = select(Task).where(
-                        and_(
-                            Task.status == "pending",
-                            Task.worker_account_id != None,  # Only get tasks that have been assigned to workers
-                            Task.retry_count < 3
+                # Process tasks in transaction
+                async with self.session_maker() as session:
+                    async with session.begin():
+                        # Get pending tasks with row-level locking
+                        stmt = (
+                            select(Task)
+                            .with_for_update(skip_locked=True)
+                            .where(
+                                and_(
+                                    Task.status == "pending",
+                                    Task.worker_account_id != None,
+                                    Task.retry_count < 3
+                                )
+                            )
+                            .order_by(
+                                Task.priority.desc(),
+                                Task.created_at.asc()
+                            )
+                            .limit(10)
                         )
-                    ).order_by(
-                        Task.priority.desc(),
-                        Task.created_at.asc()
-                    ).limit(10)  # Process in small batches
-                    
-                    result = await session.execute(stmt)
-                    tasks = result.scalars().all()
-                    
-                    if not tasks:
-                        await asyncio.sleep(0.1)
-                        continue
-                    
-                    # Process tasks within the same transaction
-                    await self._process_task_batch(session, tasks)
+                        
+                        result = await session.execute(stmt)
+                        tasks = result.scalars().all()
+                        
+                        if not tasks:
+                            await asyncio.sleep(0.1)
+                            continue
+                        
+                        # Mark tasks as locked
+                        for task in tasks:
+                            task.status = "locked"
+                            session.add(task)
+                        
+                        # Process tasks within transaction
+                        await self._process_task_batch(session, tasks)
 
             except asyncio.CancelledError:
                 logger.info("Worker received cancel signal")
                 raise
             except Exception as e:
                 logger.error(f"Worker error: {str(e)}", exc_info=True)
-                if session and session.in_transaction():
-                    await session.rollback()
-                await asyncio.sleep(0.1)
-            finally:
-                if session:
-                    await session.close()
-
-    async def _get_next_task(self, session: AsyncSession) -> Optional[Task]:
-        """Get next available task to process with row-level locking"""
         # Use SELECT FOR UPDATE SKIP LOCKED to prevent multiple workers from getting the same task
         stmt = select(Task).where(
             and_(
