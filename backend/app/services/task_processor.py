@@ -468,3 +468,4 @@ class TaskProcessor:
                     await asyncio.sleep(retry_after)
             
             # Update profile update record status
+            try:
