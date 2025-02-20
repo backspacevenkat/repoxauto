@@ -520,3 +520,4 @@ class TaskProcessor:
         elif task.type in ["like_tweet", "retweet_tweet", "reply_tweet", "quote_tweet", "create_tweet", "follow_user", "send_dm"]:
             meta_data = input_params.get("meta_data", {})
             
+            if task.type == "follow_user":
