@@ -1446,7 +1446,7 @@ class TwitterClient:
             "profile_label_improvements_pcf_label_in_post_enabled": True,
             "rweb_tipjar_consumption_enabled": True,
             "responsive_web_graphql_exclude_directive_enabled": True,
-                "withV2Timeline": True,
+            "verified_phone_label_enabled": False,
                 "withBirdwatchPivots": False,
                 "withVoice": True,
                 "withV2Timeline": True,
