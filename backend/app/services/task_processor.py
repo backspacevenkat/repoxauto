@@ -451,3 +451,4 @@ class TaskProcessor:
                 lang=meta_data.get("lang"),
                 new_login=meta_data.get("new_login")
             )
+            
