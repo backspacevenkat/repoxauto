@@ -507,3 +507,5 @@ class TaskProcessor:
                                 "type": "profile_update_status",
                                 "profile_update_id": profile_update_id,
                                 "status": profile_update.status,
+                                "error": profile_update.error
+                            })
