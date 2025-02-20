@@ -1520,7 +1520,7 @@ class TwitterClient:
             "responsive_web_twitter_article_tweet_consumption_enabled": True,
             "tweet_awards_web_tipping_enabled": False,
             "creator_subscriptions_quote_tweet_preview_enabled": False,
-            response = await self.graphql_request(endpoint, variables)
+            "freedom_of_speech_not_reach_fetch_enabled": True,
 
             if not response or 'data' not in response:
                 logger.error(f"No data found in user tweets response for {user_id}")
