@@ -505,3 +505,4 @@ class TaskProcessor:
                         if hasattr(app.state, 'connection_manager'):
                             await app.state.connection_manager.broadcast({
                                 "type": "profile_update_status",
+                                "profile_update_id": profile_update_id,
