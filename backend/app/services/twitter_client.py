@@ -15,7 +15,7 @@ import base64
 from requests_oauthlib import OAuth1
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote_plus, urljoin, urlparse, urlencode, parse_qsl
+from urllib.parse import quote_plus, quote, urljoin, urlparse, urlencode, parse_qsl
 
 def construct_proxy_url(username: str, password: str, host: str, port: str) -> str:
     """Construct a proxy URL with proper encoding"""
