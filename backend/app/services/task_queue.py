@@ -352,11 +352,11 @@ class TaskQueue:
                     "following_count": legacy.get('friends_count'),
                     "tweets_count": legacy.get('statuses_count'),
                     "likes_count": legacy.get('favourites_count'),
-            # Check if worker has required credentials
-            required_fields = {
-                "auth_token": account.auth_token,
-                "ct0": account.ct0
-            }
+                    "media_count": legacy.get('media_count'),
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+    
             
             missing_fields = [field for field, value in required_fields.items() if not value]
             if missing_fields:
