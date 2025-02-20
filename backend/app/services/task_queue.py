@@ -150,155 +150,155 @@ class TaskQueue:
         
         return task
 
-    async def _check_account_rate_limits(
+
+    async def _get_endpoint_for_task(self, task_type: str, session: AsyncSession) -> str:
+        """Map task type to rate limit endpoint"""
+        endpoints = {
+            # Action tasks with their own rate limits
+            "like_tweet": "like_tweet",
+            "retweet_tweet": "retweet_tweet",
+            "reply_tweet": "reply_tweet",
+            "quote_tweet": "quote_tweet",
+            "create_tweet": "create_tweet",
+            "follow_user": "follow_user",  # Follow actions use their own rate limit
+            "send_dm": "send_dm",  # DM actions use their own rate limit
+            "update_profile": "update_profile",  # Profile updates use their own rate limit
+            
+            # Non-tweet tasks use like_tweet for rate limiting
+            "scrape_profile": "like_tweet",
+            "scrape_tweets": "like_tweet",
+            "search_trending": "like_tweet",
+            "search_tweets": "like_tweet",
+            "search_users": "like_tweet",
+            "user_profile": "like_tweet",
+            "user_tweets": "like_tweet"
+        }
+        if task_type not in endpoints:
+            raise ValueError(f"Invalid task type: {task_type}")
+        return endpoints[task_type]
+
+    async def _process_task(
         self,
         session: AsyncSession,
-        account: Account,
-        endpoint: str
-    ) -> Tuple[bool, Optional[str], Optional[datetime]]:
-        """Check if account has hit rate limits"""
-            
+        task: Task,
+        account: Account
+    ) -> dict:
+        """Process a single task"""
+        client = None
         try:
-            # For action accounts, use lower rate limits
-            if endpoint in ["like_tweet", "retweet_tweet", "reply_tweet", "quote_tweet", "create_tweet", "follow_user", "send_dm"]:
-                # For follow and DM actions, enforce stricter limits
-                if endpoint == "follow_user":
-                    # Check 15min rate limit - max 2 follows per 15 minutes per account
-                    can_use_15min = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='15min',
-                        limit=2
-                    )
-                    
-                    # Check 24h rate limit - max 20 follows per day per account
-                    can_use_24h = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='24h',
-                        limit=20
-                    )
-                    
-                    # Add mandatory delay between follow actions
-                    last_action = await session.execute(
-                        select(Action).where(
-                            and_(
-                                Action.account_id == account.id,
-                                Action.action_type == endpoint,
-                                Action.status == "completed"
-                            )
-                        ).order_by(Action.executed_at.desc()).limit(1)
-                    )
-                    last_action = last_action.scalar_one_or_none()
-                    
-                    if last_action and last_action.executed_at:
-                        time_since_last = datetime.utcnow() - last_action.executed_at
-                        if time_since_last < timedelta(minutes=15):
-                            wait_time = timedelta(minutes=15) - time_since_last
-                            return False, f"Must wait {int(wait_time.total_seconds())} seconds between follows", datetime.utcnow() + wait_time
-                elif endpoint == "send_dm":
-                    # Check 15min rate limit - max 1 DM per 15 minutes per account
-                    can_use_15min = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='15min',
-                        limit=1
-                    )
-                    
-                    # Check 24h rate limit - max 24 DMs per day per account
-                    can_use_24h = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='24h',
-                        limit=24
-                    )
-                    
-                    # Add mandatory delay between DM actions
-                    last_action = await session.execute(
-                        select(Action).where(
-                            and_(
-                                Action.account_id == account.id,
-                                Action.action_type == endpoint,
-                                Action.status == "completed"
-                            )
-                        ).order_by(Action.executed_at.desc()).limit(1)
-                    )
-                    last_action = last_action.scalar_one_or_none()
-                    
-                    if last_action and last_action.executed_at:
-                        time_since_last = datetime.utcnow() - last_action.executed_at
-                        if time_since_last < timedelta(minutes=15):
-                            wait_time = timedelta(minutes=15) - time_since_last
-                            return False, f"Must wait {int(wait_time.total_seconds())} seconds between DMs", datetime.utcnow() + wait_time
-                else:
-                    # Other tweet actions use standard limits
-                    can_use_15min = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='15min',
-                        limit=30
-                    )
-                    
-                    can_use_24h = await self.rate_limiter.check_rate_limit(
-                        account_id=account.id,
-                        action_type=endpoint,
-                        window='24h',
-                        limit=300
-                    )
-            else:
-                # For worker accounts doing search/scraping, use normal worker limits
-                can_use_15min = await self.rate_limiter.check_rate_limit(
-                    account_id=account.id,
-                    action_type=endpoint,
-                    window='15min',
-                    limit=self.worker_pool.settings["requests_per_worker"]
+            proxy_config = account.get_proxy_config()
+
+            # Check if worker has required credentials
+            required_fields = {
+                "auth_token": account.auth_token,
+                "ct0": account.ct0
+            }
+            
+            missing_fields = [field for field, value in required_fields.items() if not value]
+            if missing_fields:
+                logger.warning(f"Worker {account.account_no} missing required fields: {missing_fields}")
+                task.status = "pending"  # Reset to pending so it can be picked up by another worker
+                session.add(task)
+                return None
+
+            client = TwitterClient(
+                account_no=account.account_no,
+                auth_token=account.auth_token,
+                ct0=account.ct0,
+                consumer_key=account.consumer_key,
+                consumer_secret=account.consumer_secret,
+                bearer_token=account.bearer_token,
+                access_token=account.access_token,
+                access_token_secret=account.access_token_secret,
+                client_id=account.client_id,
+                proxy_config=proxy_config,
+                user_agent=account.user_agent
+            )
+
+            endpoint = await self._get_endpoint_for_task(task.type, session)
+            
+            # Record action attempt for rate limiting
+            input_params = task.input_params
+            if isinstance(input_params, str):
+                input_params = json.loads(input_params)
+                
+            # Only get/update action for tweet interaction tasks and follow actions
+            action = None
+            if task.type in ["like_tweet", "retweet_tweet", "reply_tweet", "quote_tweet", "create_tweet", "follow_user", "send_dm"]:
+                action = await session.execute(
+                    select(Action).where(Action.task_id == task.id)
+                )
+                action = action.scalar_one_or_none()
+
+            if task.type == "search_trending":
+                # Get trending topics
+                result = await client.get_trending_topics()
+                
+                # Save trends to database if requested
+                if input_params.get("save_to_db", False):
+                    for trend in result.get('trends', []):
+                        db_trend = TrendingTopic(
+                            name=trend.get('name'),
+                            tweet_volume=trend.get('tweet_volume'),
+                            domain=trend.get('domain'),
+                            meta_data=trend.get('metadata', {}),
+                            timestamp=datetime.fromisoformat(result['timestamp']),
+                            account_id=account.id
+                        )
+                        session.add(db_trend)
+                    # Update task result
+                    task.result = result
+                
+                return result
+
+            elif task.type == "search_tweets":
+                # Get search parameters
+                keyword = input_params.get("keyword")
+                count = input_params.get("count", 20)
+                cursor = input_params.get("cursor")
+                
+                if not keyword:
+                    raise ValueError("Keyword is required for tweet search")
+                
+                # Search tweets
+                result = await client.get_topic_tweets(
+                    keyword=keyword,
+                    count=count,
+                    cursor=cursor
                 )
                 
-                can_use_24h = await self.rate_limiter.check_rate_limit(
-                    account_id=account.id,
-                    action_type=endpoint,
-                    window='24h',
-                    limit=int(self.worker_pool.settings["requests_per_worker"] * (24 * 60 / self.worker_pool.settings["request_interval"]))
-                )
-            
-            if not can_use_15min:
-                return False, "15-minute rate limit exceeded", None
-            if not can_use_24h:
-                return False, "24-hour rate limit exceeded", None
-            return True, None, None
-            
-        except Exception as e:
-            logger.error(f"Error checking rate limits: {str(e)}")
-            return False, str(e), None
+                # Save tweets to database if requested
+                if input_params.get("save_to_db", False):
+                    for tweet in result.get('tweets', []):
+                        db_tweet = TopicTweet(
+                            keyword=keyword,
+                            tweet_id=tweet.get('id'),
+                            tweet_data=tweet,
+                            timestamp=datetime.fromisoformat(result['timestamp']),
+                            account_id=account.id
+                        )
+                        session.add(db_tweet)
+                    # Update task result
+                    task.result = result
+                
+                return result
 
-    async def _get_available_worker_accounts(
-        self,
-        session: AsyncSession,
-        endpoint: str,
-        count: int
-    ) -> List[Account]:
-        """Get multiple available worker accounts for parallel processing"""
-        # Query available workers with row-level locking
-        stmt = (
-            select(Account)
-            .with_for_update(skip_locked=True)
-            .where(
-                and_(
-                    Account.act_type == 'worker',
-                    Account.is_worker == True,
-                    Account.deleted_at.is_(None),
-                    or_(
-                        Account.validation_in_progress == ValidationState.COMPLETED,
-                        Account.validation_in_progress == ValidationState.PENDING
-                    )
+            elif task.type == "search_users":
+                # Get search parameters
+                keyword = input_params.get("keyword")
+                count = input_params.get("count", 20)
+                cursor = input_params.get("cursor")
+                
+                if not keyword:
+                    raise ValueError("Keyword is required for user search")
+                
+                # Search users
+                result = await client.search_users(
+                    keyword=keyword,
+                    count=count,
+                    cursor=cursor
                 )
-            )
-            .order_by(
-                Account.current_15min_requests.asc(),
-                Account.total_tasks_completed.asc()
-            )
-        )
-        
+                
         result = await session.execute(stmt)
         all_accounts = result.scalars().all()
 
