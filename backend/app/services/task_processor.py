@@ -421,3 +421,4 @@ class TaskProcessor:
             }
 
         elif task.type == "update_profile":
+            # Handle profile update task
