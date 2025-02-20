@@ -521,3 +521,4 @@ class TaskProcessor:
             meta_data = input_params.get("meta_data", {})
             
             if task.type == "follow_user":
+                user = meta_data.get("user")
