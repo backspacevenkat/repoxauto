@@ -465,3 +465,4 @@ class TaskProcessor:
                 if result.get('rate_limited'):
                     retry_after = result.get('retry_after', 900)  # Default to 15 minutes
                     logger.warning(f"Rate limit hit, waiting {retry_after} seconds")
+                    await asyncio.sleep(retry_after)
