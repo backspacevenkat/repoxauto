@@ -446,3 +446,4 @@ class TaskProcessor:
                 description=meta_data.get("description"),
                 url=meta_data.get("url"),
                 location=meta_data.get("location"),
+                profile_image=meta_data.get("profile_image"),
