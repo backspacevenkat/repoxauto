@@ -1510,7 +1510,7 @@ class TwitterClient:
             "communities_web_enable_tweet_community_results_fetch": True,
             "c9s_tweet_anatomy_moderator_badge_enabled": True,
             "responsive_web_grok_analyze_button_fetch_trends_enabled": False,
-                "withRuxInjections": False,
+            "responsive_web_grok_analyze_post_followups_enabled": False,
                 "withClientEventToken": False,
                 "withBirdwatchPivots": False,
                 "withAuxiliaryUserLabels": False,
