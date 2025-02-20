@@ -383,7 +383,7 @@ class TaskQueue:
                         "created_at": legacy.get('created_at'),
                         "professional": user_data.get('professional', {}),
                         "verified_type": user_data.get('verified_type')
-            if isinstance(input_params, str):
+                    },
                 input_params = json.loads(input_params)
                 
             # Only get/update action for tweet interaction tasks and follow actions
