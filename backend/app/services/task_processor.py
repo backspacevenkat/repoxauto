@@ -544,3 +544,5 @@ class TaskProcessor:
                 media = meta_data.get("media")
                 if not text_content:
                     raise ValueError("text_content required for reply action")
+                if not tweet_id:
+                    raise ValueError("tweet_id required for reply action")
