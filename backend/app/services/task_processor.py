@@ -517,3 +517,4 @@ class TaskProcessor:
             return result
 
         # Handle Twitter action tasks
+        elif task.type in ["like_tweet", "retweet_tweet", "reply_tweet", "quote_tweet", "create_tweet", "follow_user", "send_dm"]:
