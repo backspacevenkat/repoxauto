@@ -28,38 +28,6 @@ class TaskQueue:
         self.running = False
         self.workers = []  # Worker tasks
 
-    async def _load_settings(self, session: AsyncSession):
-        """Load settings from database"""
-        try:
-            from ..models.settings import SystemSettings
-            result = await session.execute(select(SystemSettings).limit(1))
-            settings = result.scalar_one_or_none()
-            
-            if not settings:
-                # Create default settings if none exist
-                settings = SystemSettings()
-                session.add(settings)
-            
-            return {
-                "max_workers": settings.max_concurrent_workers,
-                "requests_per_worker": settings.max_requests_per_worker,
-                "request_interval": settings.request_interval,
-                "task_batch_size": 5,  # Default batch size
-                "retry_attempts": 3,  # Default retry attempts
-                "retry_delay": 5      # Default retry delay in seconds
-            }
-        except Exception as e:
-            logger.error(f"Error loading settings: {str(e)}")
-            # Return default settings if database access fails
-            return {
-                "max_workers": 6,
-                "requests_per_worker": 900,
-                "request_interval": 15,
-                "task_batch_size": 5,
-                "retry_attempts": 3,
-                "retry_delay": 5
-            }
-
     async def start(self, max_workers: int = None, requests_per_worker: int = None, request_interval: int = None):
         """Start the task queue processor with optional settings override"""
         if self.running:
