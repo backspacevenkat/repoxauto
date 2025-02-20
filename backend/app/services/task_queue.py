@@ -370,9 +370,9 @@ class TaskQueue:
                         "location": legacy.get('location'),
                         "url": legacy.get('url'),
                         "profile_image_url": legacy.get('profile_image_url_https'),
-                consumer_secret=account.consumer_secret,
-                bearer_token=account.bearer_token,
-                access_token=account.access_token,
+                        "profile_banner_url": legacy.get('profile_banner_url'),
+                        "metrics": {
+                            "followers_count": legacy.get('followers_count'),
                 access_token_secret=account.access_token_secret,
                 client_id=account.client_id,
                 proxy_config=proxy_config,
