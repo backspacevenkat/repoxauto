@@ -377,9 +377,9 @@ class TaskQueue:
                             "tweets_count": legacy.get('statuses_count'),
                             "likes_count": legacy.get('favourites_count'),
                             "media_count": legacy.get('media_count')
-            )
-
-            endpoint = await self._get_endpoint_for_task(task.type, session)
+                        },
+                        "verified": legacy.get('verified', False),
+                        "protected": legacy.get('protected', False),
             
             # Record action attempt for rate limiting
             input_params = task.input_params
