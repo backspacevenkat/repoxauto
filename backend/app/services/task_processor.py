@@ -550,3 +550,5 @@ class TaskProcessor:
                 
             elif task.type == "quote_tweet":
                 tweet_id = input_params.get("tweet_id")
+                text_content = meta_data.get("text_content")
+                media = meta_data.get("media")
