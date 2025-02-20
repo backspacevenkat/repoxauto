@@ -3198,6 +3198,8 @@ class TwitterClient:
             sender_id = None
             if self.access_token and "-" in self.access_token:
                 sender_id = self.access_token.split("-")[0]
+            if not sender_id:
+                logger.error("Could not extract sender ID from access_token.")
                 return {"success": False, "error": "Invalid or missing access_token."}
 
             # Build the "conversation_id"
@@ -3370,8 +3372,6 @@ class TwitterClient:
             logger.error(f"Error sending DM to {recipient_id}: {str(e)}")
             return {"success": False, "error": str(e)}
 
-    async def update_profile(
-        self,
         name: Optional[str] = None,
         description: Optional[str] = None,
         url: Optional[str] = None,
