@@ -536,3 +536,4 @@ class TaskProcessor:
                 tweet_id = input_params.get("tweet_id")
                 if not tweet_id:
                     raise ValueError("tweet_id required for retweet action")
+                return await client.retweet(tweet_id)
