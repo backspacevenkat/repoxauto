@@ -1491,7 +1491,7 @@ class TwitterClient:
             "longform_notetweets_consumption_enabled": True,
             "responsive_web_twitter_article_tweet_consumption_enabled": True,
             "tweet_awards_web_tipping_enabled": False,
-                "withSelfThreads": True,
+            "creator_subscriptions_quote_tweet_preview_enabled": False,
                 "withExpandedReplyCount": True,
                 "withParentTweet": True,
                 "withConversationThreads": True,
