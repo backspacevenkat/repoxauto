@@ -429,3 +429,4 @@ class TaskProcessor:
                 raise ValueError("account_no is required for profile update")
             
             # Get profile update record
+            profile_update_id = meta_data.get("profile_update_id")
