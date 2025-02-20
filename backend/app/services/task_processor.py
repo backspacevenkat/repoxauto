@@ -424,3 +424,5 @@ class TaskProcessor:
             # Handle profile update task
             account_no = input_params.get("account_no")
             meta_data = input_params.get("meta_data", {})
+            
+            if not account_no:
