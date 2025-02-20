@@ -124,13 +124,6 @@ class TaskProcessor:
                                                 # Response wasn't valid JSON
                                                 logger.error(f"Invalid JSON response for task {task.id}: {json_str[:200]}")
                                                 tasks_to_reassign.append(task)
-                                            
-                                            # Update worker's last task time and metrics
-                                            worker = await session.get(Account, task.worker_account_id)
-                                            if worker:
-                                                worker.last_task_time = datetime.utcnow()
-                                                worker.total_tasks_completed += 1
-                                                session.add(worker)
                                         else:
                                             # No response data after 200 OK
                                             logger.error(f"Empty response data for task {task.id}")
