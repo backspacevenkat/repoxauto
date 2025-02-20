@@ -457,3 +457,5 @@ class TaskProcessor:
                 logger.info(f"Successfully updated profile for account {account_no}")
                 logger.info(f"API Response: {json.dumps(result.get('responses', {}), indent=2)}")
             else:
+                error_msg = result.get('error', 'Unknown error')
+                logger.error(f"Failed to update profile for account {account_no}")
