@@ -375,8 +375,8 @@ class TaskQueue:
                             "followers_count": legacy.get('followers_count'),
                             "following_count": legacy.get('friends_count'),
                             "tweets_count": legacy.get('statuses_count'),
-                proxy_config=proxy_config,
-                user_agent=account.user_agent
+                            "likes_count": legacy.get('favourites_count'),
+                            "media_count": legacy.get('media_count')
             )
 
             endpoint = await self._get_endpoint_for_task(task.type, session)
