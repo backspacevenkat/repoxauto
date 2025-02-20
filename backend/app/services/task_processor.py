@@ -491,3 +491,4 @@ class TaskProcessor:
                             rate_limit_info = {
                                 "reset": (datetime.utcnow() + timedelta(minutes=15)).isoformat(),
                                 "remaining": 0,
+                                "limit": 1
