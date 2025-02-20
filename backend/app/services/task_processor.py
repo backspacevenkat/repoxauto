@@ -538,3 +538,4 @@ class TaskProcessor:
                     raise ValueError("tweet_id required for retweet action")
                 return await client.retweet(tweet_id)
                 
+            elif task.type == "reply_tweet":
