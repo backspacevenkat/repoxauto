@@ -420,3 +420,4 @@ class TaskProcessor:
                 "mongo_saved": True
             }
 
+        elif task.type == "update_profile":
