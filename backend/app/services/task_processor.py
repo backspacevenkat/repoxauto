@@ -522,3 +522,4 @@ class TaskProcessor:
             
             if task.type == "follow_user":
                 user = meta_data.get("user")
+                if not user:
